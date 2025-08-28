@@ -1,9 +1,6 @@
 
 # Title: August 25, 2025 
 Link: https://cloud.google.com/release-notes#August_25_2025<br>
-Google Cloudのリリースノートに関するインフラ影響調査を承知いたしました。
-利用されているGoogle Cloud Composer 2 (Composer version 2.7.1, Airflow version 2.7.3) の環境を考慮し、製品ごとに影響有無と対処方法を簡潔に回答いたします。
-
 ---
 
 # BigQuery

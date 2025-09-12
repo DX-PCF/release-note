@@ -1,46 +1,4 @@
 # 14.19
-Tighten security checks in planner estimation functions (Dean Rasheed) §
-
-The fix for CVE-2017-7484, plus followup fixes, intended to prevent leaky functions from being applied to statistics data for columns that the calling user does not have permission to read. Two gaps in that protection have been found. One gap applies to partitioning and inheritance hierarchies where RLS policies on the tables should restrict access to statistics data, but did not.
-
-The other gap applies to cases where the query accesses a table via a view, and the view owner has permissions to read the underlying table but the calling user does not have permissions on the view. The view owner's permissions satisfied the security checks, and the leaky function would get applied to the underlying table's statistics before we check the calling user's permissions on the view. This has been fixed by making security checks on views occur at the start of planning. That might cause permissions failures to occur earlier than before.
-
-The PostgreSQL Project thanks Dean Rasheed for reporting this problem. (CVE-2025-8713)
-
-
-**Translating the Details**
-
-I'm currently translating the PostgreSQL release notes, specifically focusing on CVE-2025-8713. My approach is to render the original English text into precise Japanese, breaking it down section by section for clarity. I'm meticulously working to maintain the original meaning.
-
-
-**Defining the Scope**
-
-I'm now focusing on identifying the core elements of the vulnerability description. It appears to involve security checks in planner estimation functions and gaps related to RLS policies within partitioning, inheritance, and views. My task is to precisely capture the nuances of these technical concepts in Japanese.
-
-
-**Dissecting the Problem**
-
-Now, I'm focusing on how the vulnerability works and how to best explain it. The core issue involves weaknesses in security checks within PostgreSQL. Specifically, there are two gaps: one relates to partition and inheritance hierarchies with RLS policies, and another to access through views. I'm outlining the steps involved in the attack, and how the fix prevents information leaks.
-
-
-**Summarizing the Vulnerability**
-
-I'm now outlining the impact analysis in Japanese, considering the users' perspectives. I'm currently highlighting those affected by the vulnerability, focusing on those with RLS and view access with differing permission levels. My aim is to provide a clear explanation of potential information leakage and the circumstances under which it can occur, along with an assessment of the potential damage.
-
-
-**Interpreting the Request**
-
-I'm now evaluating the user's prompt. The task involves translating the PostgreSQL release notes for CVE-2025-8713 into Japanese. Additionally, I need to create a comment outlining the potential impact, considering how it affects different user setups and emphasizing the perspective of a Google Cloud infrastructure engineer.
-
-
-**Constructing the Response**
-
-I'm now preparing the final response. I'll structure it by providing a Japanese translation of the release notes, followed by an impact assessment. The assessment will cover the vulnerability's potential consequences and specifically address the needs of a Google Cloud infrastructure engineer, ensuring clarity and actionable advice.
-
-
-**Crafting the Translation**
-
-I'm now refining the Japanese translation, organizing it in a structured manner to mirror the original English text. The bullet points are in place, with the Google search code in mind, and the impact comment is ready for polishing.
 
 
 承知いたしました。ご指定のリリースノートの内容について、日本語訳とGoogle Cloud上のインフラエンジニアとしての影響有無に関するコメントを以下に記載します。
@@ -84,51 +42,7 @@ PostgreSQLプロジェクトは、この問題を報告したDean Rasheed氏に�
     2.  **動作変更の認識**: この修正により、これまで実行できていたクエリが、プランニングの早い段階で「権限エラー」として失敗する可能性があります。これは脆弱性を塞ぐための正しい挙動への変更ですが、アプリケーションの挙動に変化がないか、ステージング環境などで事前にテストすることが望ましいです。
     3.  **リスクの認識**: RLSやビューによる権限管理は、マルチテナントのサービスなど、堅牢なデータ分離が求められるシステムで多用されます。この脆弱性はそうしたシステムの根幹を揺るがす可能性があるため、セキュリティインシデントとして扱い、迅速に対応計画を立てるべきです。
 
-==================================================
-**Initiating the Analysis**
-
-I'm starting to break down the user's request. First, I'm focusing on what the user actually needs: a Japanese translation and an impact analysis. I'm thinking through the specifics of the PostgreSQL release notes, particularly the security fix section related to `pg_dump` and `psql`, to understand the context.
-
-
-**Deconstructing the Problem**
-
-I'm now focusing on the attack vector. The core issue is malicious code injected into the `pg_dump` output. This code, disguised as data, gets executed by `psql` during the restore process. I'm outlining the attack's mechanics, emphasizing the importance of the OS user's privileges. The goal is to understand what triggers the exploit and the implications.
-
-
-**Unpacking the Details**
-
-I'm now refining the translation and expanding the impact analysis. I've identified the core elements of the security issue: the `pg_dump` output vulnerability, the `psql` meta-command exploit, and the privilege escalation risk. The translation is progressing. I'm formulating the analysis from a Google Cloud infrastructure perspective, considering the implications within managed database services.
-
-
-**Finalizing the Translation**
-
-I've refined the Japanese translation, aiming for natural phrasing, especially in more complex sentences. I've focused on accurately conveying the technical details and the potential attack scenarios. I'm satisfied with the accuracy and clarity of the translation. Now I will work on the final impact analysis.
-
-
-**Refining the Analysis**
-
-I'm now focusing on the specifics of Google Cloud's PostgreSQL offerings. The impact assessment requires a deep understanding of how Cloud SQL, for example, manages backups, restores, and user privileges. This includes how they handle `pg_dump` and `psql` operations in the background, and what level of control the customer has.
-
-
-**Impact Assessment Deep Dive**
-
-I'm now diving deep into the specifics of Google Cloud's PostgreSQL offering, particularly Cloud SQL. I'm focusing on the backup and restore mechanisms, examining how `pg_dump` and `psql` are used internally. I must know exactly what privileges a customer has, and what Google handles in the background, to properly assess the risk profile within this infrastructure.
-
-
-**Impact Analysis Focus**
-
-I'm now turning to the impact analysis, specifically within the context of Google Cloud's PostgreSQL services. I am evaluating the potential risks associated with this vulnerability for customers using Cloud SQL, examining how their backups and restores are handled and the level of control they have. Also looking at the mitigation strategies Google can provide to its users.
-
-
-**Assessing Cloud SQL Impact**
-
-I'm now thinking about the Google Cloud SQL impact. The main point: Cloud SQL users are potentially vulnerable during database restores, especially if their backups are taken from untrusted sources. The risk stems from the possibility of malicious code execution via the `psql` client during the restore process, hence,  updates are critical.
-
-
-**Prioritizing Google Cloud Concerns**
-
-I'm now focusing on refining the impact assessment within the Google Cloud ecosystem. I'm weighing the specific risks for Cloud SQL users, considering various operational scenarios, and thinking through the required security measures. My aim is to provide clear and actionable guidance for Google Cloud users.
-
+=================================================
 
 承知いたしました。ご指定のリリースノートの内容について、日本語訳とGoogle Cloud上のインフラエンジニアとしての影響有無に関するコメントを以下に記載します。
 
@@ -1864,3 +1778,393 @@ The same completions were offered for both COPY FROM and COPY TO, although some 
     2.  **運用の利便性向上**: これは運用作業の効率化とユーザーエクスペリエンスの向上に貢献するものであり、緊急性は低いですが、日々の作業を快適にするための良い改善です。
 
 この修正は、PostgreSQLの運用に直接的な影響を与えるものではなく、`psql`クライアントツールの「使いやすさ」を向上させるものです。したがって、緊急性は低いと判断できます。
+
+========================================
+Ensure that pg_dump dumps comments on domain constraints in a valid order (Jian He) §
+
+In some cases the comment command could appear before creation of the constraint.
+
+**Understanding the Impact**
+
+I've started translating the English text into Japanese to ensure a solid understanding of the `pg_dump` and domain constraints release note. Next, I'll be diving into the impact analysis on Google Cloud operations. The goal is to pinpoint the direct effects and then trace the reasoning behind those assessments.
+
+
+**Defining the Problem**
+
+I've focused on translating the key phrase: "Ensure that `pg_dump` dumps comments on domain constraints in a valid order". Now, I'm pinpointing the core issue: `pg_dump`'s incorrect ordering of comments can cause restoration failures due to syntax errors or missing constraints. This directly affects backup reliability for Google Cloud users.
+
+
+**Dissecting the Issue**
+
+Now, I'm focusing on dissecting the phrase "In some cases the comment command could appear before creation of the constraint". I'm analyzing the specific ordering problem: `COMMENT ON CONSTRAINT` appearing before the constraint is created. This highlights a potential restoration failure due to syntax issues. The impact analysis and its reasoning are starting to solidify.
+
+
+承知いたしました。ご指定のリリースノートの内容について、日本語訳とGoogle Cloud上のインフラエンジニアとしての影響有無に関するコメントを以下に記載します。
+
+---
+
+### 日本語訳
+
+**`pg_dump`がドメイン制約のコメントを正しい順序でダンプすることを保証 (Jian He)** §
+
+場合によっては、コメントコマンドが制約の作成より前に現れる可能性がありました。
+
+---
+
+### 影響有無とコメント
+
+**影響有無：あり（重要）**
+
+#### コメント
+
+これは、`pg_dump`によって生成されるバックアップファイルの**リストア可能性（restorability）**に影響を与えるバグ修正です。
+
+*   **問題の内容**:
+    PostgreSQLでは、`DOMAIN`（ドメイン型）に対して制約（`CHECK`制約など）を定義し、さらにその制約にコメントを付けることができます。`pg_dump`は、データベースのスキーマをSQLスクリプトとしてダンプする際に、これらのオブジェクトの定義とコメントを適切な順序で出力する必要があります。
+    これまでのバージョンでは、**稀なケース**で、`pg_dump`が`DOMAIN`制約に対する`COMMENT ON CONSTRAINT ...`コマンドを、実際にその制約を作成する`ALTER DOMAIN ... ADD CONSTRAINT ...`コマンドより**前に出力してしまう**バグがありました。
+    この順序の誤りがあると、生成されたダンプファイルをリストアしようとした際に、「制約が存在しないためコメントを付けられない」という**構文エラーやオブジェクトが見つからないエラーが発生し、リストアが失敗する**可能性があります。
+
+*   **影響を受ける環境**:
+    *   `DOMAIN`型を使用し、かつその`DOMAIN`型の制約にコメントを付与しているデータベース。
+    *   そのデータベースから`pg_dump`でバックアップを取得し、そのバックアップをリストアする運用を行っている環境。
+
+    バックアップがリストアできないことは、災害復旧やテスト環境の構築、環境移行などの非常に重要な場面でサービス停止やデータ喪失に直結する可能性があるため、その影響は重大です。
+
+*   **インフラエンジニアとしての対応**:
+    1.  **`pg_dump`のアップデート**: `pg_dump`はクライアントサイドのツールであるため、データベースサーバー本体のアップデートだけでなく、**`pg_dump`コマンド自体もこの修正が含まれるバージョン（14.19以降）にアップデートされていること**を確認してください。これは、Cloud SQLのインスタンスのバックアップを外部のCompute Engineやローカル環境から`pg_dump`で取得している場合も同様です。
+    2.  **バックアップの検証**: 定期的にバックアップファイルからのリストアテストを実施し、常にリストア可能であることを確認することは、あらゆるPostgreSQL運用において重要です。この修正により、特定のケースにおけるリストア失敗のリスクが軽減されます。
+
+この修正は、直接的なデータ損失や運用中のサービス停止を引き起こすものではありませんが、バックアップの信頼性という非常に重要な側面に影響を与えるため、適切に`pg_dump`ツールをアップデートし、リストア可能性を確保することが強く推奨されます。
+
+===============================
+Ensure stable sort ordering in pg_dump for all types of database objects (Noah Misch, Andreas Karlsson) § § §
+
+pg_dump sorts objects by their logical names before performing dependency-driven reordering. This sort did not account for the full unique key identifying certain object types such as rules and constraints, and thus it could produce dissimilar sort orders for logically-identical databases. That made it difficult to compare databases by diff'ing pg_dump output, so improve the logic to ensure stable sort ordering in all cases.
+
+**Examining Release Notes**
+
+I'm currently focusing on the PostgreSQL release note. I'm delving into its meaning, figuring out the specifics of the "stable sort ordering" requirement within `pg_dump`. The Japanese translation will be a challenge, but I'm sure it'll fall into place. Afterwards, I'll need to assess the impact.
+
+
+**Understanding the Problem**
+
+I've finished the Japanese translation, ensuring accuracy and completeness. I'm now shifting gears to evaluate the impact on a Google Cloud infrastructure engineer. My focus is understanding how the lack of stable sorting created headaches for operational tasks. The original problem was definitely comparison issues, I am considering backup and restore procedures.
+
+
+**Evaluating Operational Implications**
+
+I've finished the Japanese translation and the Google Cloud engineer's perspective is coming more into focus. Now, the reasoning behind the change is being clarified. The lack of stable sorting order made comparing database dumps a nightmare for operational tasks. The fix should lead to smoother deployments, backup validations, and easier troubleshooting of differences between database environments.
+
+
+**Defining Operational Benefits**
+
+I'm now solidifying the operational benefits stemming from stable sort ordering. Clear advantages are emerging: streamlined deployments, improved backup validation, and easier troubleshooting across database environments. I'm mapping how this translates to more efficient and reliable operations.
+
+
+**Finalizing the Impact Analysis**
+
+I'm now crystallizing the assessment for the Google Cloud engineer. This is a clear win for operational reliability. The fix addresses the inconsistent output of `pg_dump`, thus enhancing schema management. I'm putting the finishing touches on the documentation, and preparing for the final write-up.
+
+
+---
+
+### 日本語訳
+
+**`pg_dump`がすべての種類のデータベースオブジェクトに対して安定したソート順序を保証する (Noah Misch, Andreas Karlsson)** § § §
+
+`pg_dump`は、依存関係による並べ替えを行う前に、オブジェクトを論理名でソートします。このソートは、ルールや制約のような特定のオブジェクトタイプを識別する完全なユニークキーを考慮していませんでした。そのため、論理的に同一のデータベースであっても、異なるソート順序を生成する可能性がありました。それにより、`pg_dump`の出力を`diff`することでデータベースを比較することが困難になっていたため、すべての場合で安定したソート順序を保証するようにロジックを改善します。
+
+---
+
+### 影響有無とコメント
+
+**影響有無：あり（重要）**
+
+#### コメント
+
+これは、`pg_dump`コマンドによって生成されるバックアップファイルやスキーマ定義ファイルの**比較可能性と信頼性**に影響を与える改善です。データベースの運用、特にスキーマ管理や変更履歴の追跡において重要な意味を持ちます。
+
+*   **問題の内容**:
+    `pg_dump`は、データベースオブジェクト（テーブル、インデックス、ビュー、関数など）をダンプする際、内部でオブジェクトの依存関係を解決しながら、ある程度の順序で出力します。しかし、これまでの一部のオブジェクトタイプ（例えば、ルールや特定の制約）では、その出力順序を決定するためのソートキーが完全ではなかったため、**内容的に全く同じデータベースであっても、`pg_dump`の出力ファイルの内容が微妙に異なってしまう**ことがありました。
+    この順序の不安定性は、例えばGitなどのバージョン管理システムで`pg_dump`の出力を管理し、スキーマの変更履歴を追跡したり、異なる環境間のスキーマの差異を`diff`コマンドで比較したりする際に、**意図しない大量の差分（ノイズ）**が発生し、実際の変更点を特定することが困難になるという問題を引き起こしていました。
+
+*   **修正内容**:
+    今回の修正により、`pg_dump`はすべてのデータベースオブジェクトについて、より完全なユニークキーに基づいてソートを行うようになります。これにより、論理的に同一のデータベースからは、常に同一の（安定した順序の）ダンプファイルが生成されるようになります。
+
+*   **影響を受ける環境**:
+    *   **`pg_dump`の出力をバージョン管理システムで管理している環境**。
+    *   **`pg_dump`の出力を`diff`ツールで比較して、スキーマの変更や同期を行っている環境**。
+    *   **CI/CDパイプラインの一部としてスキーマ比較を行っている環境**。
+
+    Cloud SQL for PostgreSQLの自動バックアップ機能は`pg_dump`のこの問題の影響を直接受けませんが、Cloud SQLから手動で`pg_dump`を取得したり、Compute Engine上のセルフマネージドPostgreSQLで運用を行ったりしている場合には、この修正の恩恵を大きく受けられます。
+
+*   **インフラエンジニアとしての対応**:
+    1.  **`pg_dump`のアップデート**: `pg_dump`はクライアントサイドのツールであるため、データベースサーバー本体のアップデートだけでなく、**`pg_dump`コマンド自体もこの修正が含まれるバージョン（14.19以降）にアップデートされていること**を確認してください。
+    2.  **運用効率の向上**: この修正により、スキーマ変更の管理、環境間の差異特定、デプロイ前の検証などが大幅に効率化され、運用上の手間が削減されます。特にデータベースのデプロイメントを自動化している環境では、この安定した出力は非常に価値があります。
+
+この修正は、直接的なデータ損失やサービス停止につながるものではありませんが、データベースの管理、変更管理、自動化といった側面で運用効率と信頼性を高める上で非常に重要な改善です。
+
+=========================
+
+はい、承知いたしました。Google Cloud上のPostgreSQL基盤の運用・保守を行っているインフラエンジニアとして、ご提示いただいたリリースノートの内容について、日本語訳、影響有無、および判断理由を解説します。
+
+---
+
+### リリースノートの内容
+
+**原文:**
+In pg_upgrade, check for inconsistent inherited not-null constraints (Ali Akbar) § § § § § §
+PostgreSQL versions before 18 allow an inherited column not-null constraint to be dropped. However, this results in a schema that cannot be restored, leading to failure in pg_upgrade. Detect such cases during pg_upgrade's preflight checks to allow users to fix them before initiating the upgrade.
+
+---
+
+### 1. 日本語訳
+
+**pg_upgradeにおいて、継承されたNOT NULL制約の不整合をチェックする (Ali Akbar)**
+
+PostgreSQL 18より前のバージョンでは、継承されたカラムのNOT NULL制約を削除することが許可されていました。しかし、これはリストア不可能なスキーマ状態を招き、pg_upgradeの実行に失敗する原因となります。pg_upgradeの事前チェック（preflight checks）中にこのようなケースを検出し、ユーザーがアップグレード開始前に修正できるようにします。
+
+---
+
+### 2. 影響有無
+
+**影響あり（ただし、特定の条件下において）**
+
+*   **影響を受ける可能性のあるバージョン:**
+    *   アップグレード元が **PostgreSQL 18 より前のバージョン** で、
+    *   かつ、アップグレード先のバージョンが **PostgreSQL 18 以降** である場合。
+*   **影響を受ける操作:**
+    *   `pg_upgrade` を使用した PostgreSQL のバージョンアップ。
+*   **影響の詳細:**
+    *   アップグレード元（PostgreSQL 18より前のバージョン）のデータベースにおいて、親テーブルで定義されているNOT NULL制約を、子テーブルで明示的に削除している場合。
+    *   この状態のまま `pg_upgrade` で新しいバージョンにアップグレードしようとすると、スキーマの整合性が取れず、アップグレードプロセスが失敗する可能性があります。
+
+---
+
+### 3. 判断理由
+
+このリリースノートは、`pg_upgrade` というツールにおける、**PostgreSQLのバージョンアップ時のスキーマ整合性に関する不具合修正** を示しています。
+
+1.  **「継承されたNOT NULL制約の不整合」とは何か？**
+    *   PostgreSQLでは、テーブルは他のテーブルの定義（カラムや制約など）を「継承」できます。
+    *   親テーブルのカラムに `NOT NULL` 制約があると、子テーブルはそのカラムに `NULL` を許可しない、というルールが暗黙的に適用されます。
+    *   しかし、**PostgreSQL 18 より前のバージョンでは、この「親から継承されたNOT NULL制約」を、子テーブル側で明示的に `DROP CONSTRAINT` して削除することが可能でした。**
+    *   これは、親テーブルは「NOT NULL」としているのに、子テーブルはその制約がない（`NULL` を許可してしまう）という、**内部的な矛盾** を生み出します。
+
+2.  **なぜこれが`pg_upgrade`の失敗につながるのか？**
+    *   `pg_upgrade` は、古いバージョンのデータベースのスキーマ定義やデータを、新しいバージョンのデータベースに安全かつ正確に移行させるためのツールです。
+    *   しかし、上記のような「継承されたNOT NULL制約の不整合」がある場合、古いバージョンのPostgreSQLでは許容されていた矛盾が、**新しいバージョン（特にPostgreSQL 18以降）では許容されなくなったり、あるいはその移行処理が正しく行えなかったりします。**
+    *   具体的には、`pg_upgrade` が新しいバージョンのデータベースでスキーマを再構築しようとした際に、この不整合が原因でエラーが発生し、アップグレードが完了できなくなる、ということです。
+
+3.  **今回の変更（リリースノートの内容）の目的**
+    *   このリリースノートで追加されたのは、`pg_upgrade` の **「事前チェック（preflight checks）」** において、このような「継承されたNOT NULL制約の不整合」がないかを事前にスキャンし、検出する機能です。
+    *   もし不整合が見つかった場合、`pg_upgrade` はアップグレードを中止するのではなく、**ユーザーに対してその問題を指摘し、修正を促します。**
+    *   これにより、ユーザーはアップグレードを開始する前に、問題のあるスキーマを修正し、その後改めて `pg_upgrade` を実行することで、アップグレードの失敗を防ぐことができます。
+
+**結論として、** これは `pg_upgrade` の信頼性を向上させるための重要な改善です。もし、 our teamが運用するPostgreSQLクラスターで、この不整合を持つスキーマ構成が存在し、かつ将来的に18以降のバージョンへのアップグレードを計画している場合は、この事前チェック機能によって問題が早期に発見され、安全なアップグレードが可能になります。
+
+---
+
+ご不明な点がございましたら、お気軽にご質問ください。
+
+=============================================
+Avoid assertion failure if track_commit_timestamp is enabled during initdb (Hayato Kuroda, Andy Fan) §
+
+承知いたしました。Google Cloud上のPostgreSQL基盤の運用・保守を行っているインフラエンジニアとして、ご提示いただいたリリースノートの内容について、日本語訳、影響有無、および判断理由を解説します。
+
+---
+
+### リリースノートの内容
+
+**原文:**
+Avoid assertion failure if track_commit_timestamp is enabled during initdb (Hayato Kuroda, Andy Fan) §
+
+---
+
+### 1. 日本語訳
+
+**initdb実行中に track_commit_timestamp が有効になっている場合のアサーション失敗を回避する (黒田 隼人, Andy Fan)**
+
+---
+
+### 2. 影響有無
+
+**影響なし（ただし、特定の条件下におけるバグ修正）**
+
+*   **影響を受ける可能性のあるバージョン:**
+    *   アップグレード元が、このバグを含む古いバージョンのPostgreSQLである場合。
+*   **影響を受ける操作:**
+    *   `initdb` コマンドを実行して新しいPostgreSQLクラスターを初期化する際。
+*   **影響の詳細:**
+    *   `track_commit_timestamp` パラメータが `on` (有効) に設定された状態で `initdb` を実行すると、PostgreSQLの内部的なアサーション（プログラムの前提条件が満たされているかのチェック）が失敗し、`initdb` が異常終了する可能性がありました。
+    *   **この修正により、そのような状況下での `initdb` の失敗が防止されます。**
+
+---
+
+### 3. 判断理由
+
+このリリースノートは、**PostgreSQLの初期化プロセス (`initdb`) における特定のバグ修正** に関するものです。
+
+1.  **`initdb` とは？**
+    *   `initdb` は、PostgreSQLデータベースクラスターを新規に作成するためのコマンドです。これにより、データディレクトリ、設定ファイル、システムカタログなどが初期化されます。
+    *   我々インフラエンジニアが新しいPostgreSQLインスタンスをプロビジョニングする際などに使用する基本的なコマンドです。
+
+2.  **`track_commit_timestamp` とは？**
+    *   これはPostgreSQLの `postgresql.conf` で設定できるパラメータの一つです。
+    *   `track_commit_timestamp = on` と設定すると、トランザクションがコミットされた正確な日時が記録されるようになります。これは、監査やパフォーマンス分析などで役立ちますが、わずかにオーバーヘッドがあります。
+
+3.  **「アサーション失敗」とは？**
+    *   アサーション（assertion）とは、プログラムの実行中に、ある条件が真であることを確認するための仕組みです。もしその条件が偽（False）であった場合、アサーションは失敗し、通常はプログラムが強制終了します。
+    *   これは、開発者がコードのロジックに誤りがないことを保証するために利用するもので、アサーション失敗は、コードのバグを示唆していることが多いです。
+
+4.  **今回のバグとその影響:**
+    *   このリリースノートが指摘しているのは、**「`track_commit_timestamp` を有効にして `initdb` を実行する」という特定の操作の組み合わせにおいて、PostgreSQLの内部ロジックにバグがあり、アサーションが失敗して `initdb` がクラッシュしてしまう**という問題です。
+    *   これは、新しいPostgreSQLクラスターを作成しようとする際に、予期せずプロセスが中断してしまうことを意味します。
+
+5.  **この修正の意義:**
+    *   この修正は、`track_commit_timestamp` を有効にした状態で `initdb` を実行しても、アサーション失敗によって初期化プロセスが中断されることがなくなる、というものです。
+    *   つまり、**`initdb` が正常に完了するようになり、`track_commit_timestamp` を有効にした初期設定も問題なく行えるようになります。**
+    *   我々インフラエンジニアにとっては、新しいインスタンスのセットアップが、この特定のバグによって妨げられることがなくなる、というメリットがあります。
+
+**結論として、** これは `initdb` の安定性を高めるためのバグ修正です。もし our team が運用するPostgreSQLインスタンスで、`track_commit_timestamp` を有効にして `initdb` を実行するようなシナリオがあった場合、この修正が含まれていない古いバージョンでは問題が発生する可能性がありましたが、この修正により、その問題は解消されています。
+
+---
+
+ご不明な点がございましたら、お気軽にご質問ください。
+
+===================================================
+
+承知いたしました。Google Cloud上のPostgreSQL基盤の運用・保守を行っているインフラエンジニアとして、ご提示いただいたリリースノートの内容について、日本語訳、影響有無、および判断理由を解説します。
+
+---
+
+### リリースノートの内容
+
+**原文:**
+Avoid possible leak of the open connection during contrib/dblink connection establishment (Tom Lane) §
+In the rare scenario where we hit out-of-memory while inserting the new connection object into dblink's hashtable, the open connection would be leaked until end of session, leaving an idle session sitting on the remote server.
+
+---
+
+### 1. 日本語訳
+
+**contrib/dblinkでの接続確立中に、開いた接続のリークを回避する (Tom Lane)**
+
+まれなシナリオで、dblinkのハッシュテーブルに新しい接続オブジェクトを挿入する際にメモリ不足が発生した場合、開かれた接続はセッション終了までリークし、リモートサーバー上にアイドル状態のセッションを残したままになります。
+
+---
+
+### 2. 影響有無
+
+**影響あり（ただし、非常に限定的かつ稀な状況下におけるリソースリークの修正）**
+
+*   **影響を受ける可能性のあるバージョン:**
+    *   `dblink` 拡張機能を使用しており、このバグが含まれる古いバージョンのPostgreSQL。
+*   **影響を受ける操作:**
+    *   `dblink` を使用してリモートデータベースへの接続を確立しようとする際。
+    *   かつ、その接続確立処理の最中に、**PostgreSQLサーバー自体のメモリが不足する** という非常に稀な状況に遭遇した場合。
+*   **影響の詳細:**
+    *   上記のような「まれなシナリオ」が発生した場合、リモートサーバーへの接続自体は確立されるものの、その接続を管理するための内部的なリソース（接続オブジェクト）が正しく解放されず、**セッションが終了するまで「リーク」した状態** になります。
+    *   リークした接続は、リモートサーバー上でリソース（メモリ、プロセスなど）を消費し続ける、**アイドル状態のセッション** として残ります。
+    *   この修正により、このようなメモリ不足の状況下でも、開かれた接続が適切にクリーンアップされるようになります。
+
+---
+
+### 3. 判断理由
+
+このリリースノートは、**`dblink` 拡張機能における、非常に特殊な条件下でのリソースリークの修正** を示しています。
+
+1.  **`dblink` とは？**
+    *   `dblink` は、PostgreSQLの拡張機能（contribモジュール）の一つです。
+    *   これにより、同じPostgreSQLサーバー内、または異なるPostgreSQLサーバーに対して、SQLクエリを実行したり、テーブルをリンクさせたりすることができます。
+    *   データベース間の連携やデータ統合において非常に便利な機能です。
+
+2.  **「接続確立中にメモリ不足」という状況:**
+    *   `dblink` でリモート接続を確立する際、PostgreSQLは内部的にその接続情報を管理するためのオブジェクトを作成し、それをハッシュテーブル（効率的なデータ検索のための構造）に格納します。
+    *   通常、この処理は問題なく完了します。
+    *   しかし、もし **PostgreSQLサーバー自体のメモリが極端に不足している状況** でこの処理が行われた場合、新しい接続オブジェクトをハッシュテーブルに挿入する際にメモリを確保できず、処理が失敗する可能性があります。
+
+3.  **なぜ「リーク」が発生するのか？**
+    *   このリリースノートで指摘されているのは、メモリ不足で接続オブジェクトの格納に失敗した場合、**その失敗した処理が原因で、既に開かれたリモート接続自体が、後続のクリーンアップ処理（例えばセッション終了時の解放処理）の対象から漏れてしまう** ということです。
+    *   結果として、接続は確立されたものの、それを管理する内部的なポインタやリソースが解放されず、「リーク」した状態が継続します。
+    *   リークした接続は、リモートサーバーのリソースを不必要に占有し続けるため、長期的にはシステム全体のパフォーマンスに影響を与える可能性があります。
+
+4.  **この修正の意義:**
+    *   この修正では、`dblink` が接続オブジェクトをハッシュテーブルに格納する際に、メモリ不足が発生した場合のフォールバック処理が追加されています。
+    *   具体的には、オブジェクトの格納に失敗した場合でも、既に開かれたリモート接続を適切にクローズし、関連するリソースを解放するようになっています。
+    *   これにより、**メモリ不足という極めて稀な状況下でも、`dblink` による接続がリークするのを防ぐことができます。**
+
+**結論として、** この変更は、`dblink` の堅牢性を高めるためのものです。我々が通常運用している環境では、PostgreSQLサーバーのメモリが「接続オブジェクトの格納すらできない」ほど不足するという状況は極めて稀です。しかし、もしそのような極端なメモリ逼迫が発生した場合に、`dblink` を利用しているとリソースリークが発生しうるという潜在的なリスクが、この修正によって低減されます。
+
+our team としては、この修正が含まれるバージョン以降を使用することで、このような「まれな」問題による影響を防ぐことができます。
+
+---
+
+ご不明な点がございましたら、お気軽にご質問ください。
+=================================================
+承知いたしました。Google Cloud上のPostgreSQL基盤の運用・保守を行っているインフラエンジニアとして、ご提示いただいたリリースノートの内容について、日本語訳、影響有無、および判断理由を解説します。
+
+---
+
+### リリースノートの内容
+
+**原文:**
+Make contrib/pg_prewarm cope with very large shared_buffers settings (Daria Shanina) §
+Autoprewarm failed with a memory allocation error if shared_buffers was larger than about 50 million buffers (400GB).
+
+---
+
+### 1. 日本語訳
+
+**contrib/pg_prewarm が非常に大きな shared_buffers 設定に対応できるようにする (Daria Shanina)**
+
+共有バッファの数が約5000万バッファ（400GB）より大きい場合、Autoprewarmはメモリ割り当てエラーで失敗していました。
+
+---
+
+### 2. 影響有無
+
+**影響あり（ただし、特定の環境・設定下において）**
+
+*   **影響を受ける可能性のあるバージョン:**
+    *   `pg_prewarm` 拡張機能を使用しており、このバグが含まれる古いバージョンのPostgreSQL。
+*   **影響を受ける操作:**
+    *   `pg_prewarm` 拡張機能の `autoprewarm` 機能を使用する際。
+    *   かつ、PostgreSQLの `shared_buffers` 設定値が非常に大きい（約400GB、または5000万バッファ以上）場合。
+*   **影響の詳細:**
+    *   `shared_buffers` を約400GB（またはそれ以上）に設定している環境で `pg_prewarm` の `autoprewarm` 機能を使用すると、メモリ割り当てエラーが発生し、機能が正しく動作しませんでした。
+    *   この修正により、**大きな `shared_buffers` 設定に対しても `pg_prewarm` の `autoprewarm` が正常に動作するようになります。**
+
+---
+
+### 3. 判断理由
+
+このリリースノートは、**`pg_prewarm` 拡張機能における、大規模な `shared_buffers` 設定との互換性問題の修正** を示しています。
+
+1.  **`pg_prewarm` とは？**
+    *   `pg_prewarm` は、PostgreSQLの拡張機能（contribモジュール）の一つです。
+    *   この拡張機能の主な目的は、PostgreSQLサーバー起動後、データベースのデータファイル（インデックスやテーブルデータ）を自動的にOSのファイルシステムキャッシュやPostgreSQLの共有バッファ（`shared_buffers`）に読み込んでおくことです。
+    *   これにより、サーバー起動直後からクエリのパフォーマンスが向上する（ウォームアップ時間が短縮される）効果が期待できます。
+    *   特に `autoprewarm` は、バックグラウンドで継続的にデータファイルを読み込む機能です。
+
+2.  **`shared_buffers` とは？**
+    *   `shared_buffers` はPostgreSQLの最も重要な設定パラメータの一つで、PostgreSQLサーバーがディスクI/Oを減らすために使用するメモリ領域のサイズを指定します。
+    *   この領域にデータやインデックスがキャッシュされることで、ディスクアクセスが高速化されます。
+    *   近年、サーバーのメモリ容量が増加するにつれて、`shared_buffers` の設定値も大きくなる傾向があります。
+
+3.  **「約400GB超えでメモリ割り当てエラー」の理由:**
+    *   `pg_prewarm` の `autoprewarm` 機能は、どのデータブロックを共有バッファに読み込むべきかを管理するために、内部的にメモリ構造（例: どのブロックがすでに読み込まれたか、次に読むべきブロックなど）を保持します。
+    *   このリリースノートで修正されたバグは、**`shared_buffers` の設定値が非常に大きくなると、`pg_prewarm` が管理するために必要とするメモリ量もそれに比例して増大する** という点にありました。
+    *   具体的には、`pg_prewarm` が内部で確保しようとしたメモリ構造のサイズ計算や割り当て処理に問題があり、**5000万バッファ（約400GB）を超えるような設定値の場合、PostgreSQLサーバーのメモリ管理機構（mallocなど）が、要求されたメモリを割り当てられずにエラーを返してしまっていた** のです。
+    *   その結果、`autoprewarm` は期待通りに動作せず、エラーで停止してしまっていました。
+
+4.  **この修正の意義:**
+    *   この修正では、`pg_prewarm` が内部でメモリを管理する方法が改善され、**非常に大きな `shared_buffers` 設定（400GB超）であっても、メモリ割り当てエラーを起こすことなく `autoprewarm` が正常に機能するようになります。**
+    *   これは、大規模なメモリを搭載したサーバーでPostgreSQLを運用し、かつ `pg_prewarm` のプリウォーム機能によるパフォーマンス向上を期待するユーザーにとって、非常に重要な改善です。
+
+**結論として、** our team が運用するPostgreSQLクラスターにおいて、`shared_buffers` の設定値が400GBを超えるような大規模な構成を取る場合、そして `pg_prewarm` の `autoprewarm` 機能を利用しようとする際には、この修正が含まれているバージョン以降を使用することが必須となります。そうでなければ、プリウォーム機能が動作せず、期待されるパフォーマンス向上が得られない、あるいはエラーが発生してしまいます。
+
+---
+
+ご不明な点がございましたら、お気軽にご質問ください。
+========================================

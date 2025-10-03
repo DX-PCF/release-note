@@ -49,7 +49,7 @@
 
 ご自身のアプリケーションのトラブルシューティングを行う際、これらのシステムコンポーネントに異常がないか確認することが、問題の切り分けに役立ちます。
 
-
+```
 yasumoto_tonoshiro@gke-cluster-1-default-pool-75fa3af9-02vt ~ $ hostname
 gke-cluster-1-default-pool-75fa3af9-02vt
 yasumoto_tonoshiro@gke-cluster-1-default-pool-75fa3af9-02vt ~ $ ls -la /home/kubernetes/bin/
@@ -99,5 +99,7 @@ drwxr-xr-x 11 root root      4096 Oct  3 00:22 ..
 -rwxr-xr-x  1 root root   4292189 Aug  7 20:58 tuning
 -rwxr-xr-x  1 root root   5204278 Aug  7 20:58 vlan
 -rwxr-xr-x  1 root root   4581176 Aug  7 20:58 vrf
+```
+
 yasumoto_tonoshiro@gke-cluster-1-default-pool-75fa3af9-02vt ~ $ 
 

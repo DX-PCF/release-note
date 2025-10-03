@@ -48,3 +48,56 @@
 これらのコンポーネントは、ユーザーが作成したアプリケーションのワークロードとは分離されており、GKEクラスタの**コントロールプレーン**と**ノード**の機能をサポートするために、Google Cloudが責任を持って管理・維持しています。
 
 ご自身のアプリケーションのトラブルシューティングを行う際、これらのシステムコンポーネントに異常がないか確認することが、問題の切り分けに役立ちます。
+
+
+yasumoto_tonoshiro@gke-cluster-1-default-pool-75fa3af9-02vt ~ $ hostname
+gke-cluster-1-default-pool-75fa3af9-02vt
+yasumoto_tonoshiro@gke-cluster-1-default-pool-75fa3af9-02vt ~ $ ls -la /home/kubernetes/bin/
+total 727768
+drwxr-xr-x  2 root root      4096 Oct  3 00:22 .
+drwxr-xr-x 11 root root      4096 Oct  3 00:22 ..
+-rwxr-xr-x  1 root root    844891 Jun  3 05:17 LICENSES.txt
+-rwxr-xr-x  1 root root  11260164 Aug 28 22:19 auth-provider-gcp
+-rwxr-xr-x  1 root root   4957726 Aug  7 20:58 bandwidth
+-rwxr-xr-x  1 root root   5632532 Aug  7 20:58 bridge
+-rwxr-xr-x  1 root root  67126112 Oct  3 00:22 cilium-cni
+-r-xr--r--  1 root root    119981 Aug 28 22:19 configure-helper.sh
+-rwxr-xr-x  1 root root     31765 Aug 28 22:19 configure-kubeapiserver.sh
+-rwxr-xr-x  1 root root     57421 Oct  3 00:22 configure.sh
+-rwxr-xr-x  1 root root  81130036 Aug 28 22:19 containerd-gcfs-grpc
+-rwxr-xr-x  1 root root   2384024 Aug 28 22:19 containerd-toml-checker
+-rwxr-xr-x  1 root root  38687523 Nov  8  2024 crictl
+-rwxr-xr-x  1 root root  13875460 Aug  7 20:58 dhcp
+-rwxr-xr-x  1 root root   5187638 Aug  7 20:58 dummy
+-rwxr-xr-x  1 root root   5739787 Aug  7 20:58 firewall
+-rwxr-xr-x  1 root root 108221984 Aug 28 22:19 gcfsd
+-rwxr-xr-x  1 root root   5482661 Aug  7 20:58 gke
+-rwxr-xr-x  1 root root  53005564 Aug 28 22:19 gke-exec-auth-plugin
+-rwxr-xr-x  1 root root    869838 Aug 28 22:19 gke-exec-auth-plugin-license
+-rwxr-xr-x  1 root root     49481 Aug 28 22:19 gke-internal-configure-helper.sh
+-rwxr-xr-x  1 root root   5939352 Aug 28 22:22 gke-support-daemon
+-rwxr-xr-x  1 root root   9173339 Jun  3 05:16 health-checker
+-rwxr-xr-x  1 root root   5105232 Aug  7 20:58 host-device
+-rwxr-xr-x  1 root root   4359739 Aug  7 20:58 host-local
+-rwxr-xr-x  1 root root     16688 Aug 28 22:19 installable.py
+-rwxr-xr-x  1 root root   5212601 Aug  7 20:58 ipvlan
+-rwxr-xr-x  1 root root  80049384 Aug 20 06:44 kubectl
+-rwxr-xr-x  1 root root  83738916 Aug 20 06:44 kubelet
+-rwxr-xr-x  1 root root  24360712 Jun  3 05:16 log-counter
+-rwxr-xr-x  1 root root   4206183 Aug  7 20:58 loopback
+-rwxr-xr-x  1 root root   5244662 Aug  7 20:58 macvlan
+-rwxr-xr-x  1 root root      1276 Aug 28 22:19 networkd-monitor.sh
+-rwxr-xr-x  1 root root  69321800 Jun  3 05:16 node-problem-detector
+-rwxr-xr-x  1 root root   5710084 Aug 28 22:19 node-reg-checker
+-r-xr--r--  1 root root     14825 Aug 28 22:19 node-registration-checker.sh
+-rwxr-xr-x  1 root root   5061194 Aug  7 20:58 portmap
+-rwxr-xr-x  1 root root   5417806 Aug  7 20:58 ptp
+-rwxr-xr-x  1 root root   4428116 Aug  7 20:58 sbr
+-rwxr-xr-x  1 root root      8728 Jun  3 05:17 source.tar.gz
+-rwxr-xr-x  1 root root   3728119 Aug  7 20:58 static
+-rwxr-xr-x  1 root root   5273830 Aug  7 20:58 tap
+-rwxr-xr-x  1 root root   4292189 Aug  7 20:58 tuning
+-rwxr-xr-x  1 root root   5204278 Aug  7 20:58 vlan
+-rwxr-xr-x  1 root root   4581176 Aug  7 20:58 vrf
+yasumoto_tonoshiro@gke-cluster-1-default-pool-75fa3af9-02vt ~ $ 
+

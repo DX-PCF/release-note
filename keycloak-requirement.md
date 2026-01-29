@@ -1,3 +1,109 @@
+GKE（Google Kubernetes Engine）上でKeycloakを運用するための、非機能要件に基づいた方式設計書案を作成しました。
+
+この設計は、**高可用性（HA）、セキュリティ、スケーラビリティ**を重視したエンタープライズグレードの構成を想定しています。
+
+---
+
+# Keycloak on GKE 非機能方式設計書
+
+## 1. 全体アーキテクチャ概要
+*   **プラットフォーム:** Google Cloud (GKE)
+*   **データベース:** Cloud SQL for PostgreSQL
+*   **ロードバランサ:** Google Cloud Load Balancing (GCLB)
+*   **キャッシュ/クラスタ通信:** Infinispan (Keycloak内蔵) + JGroups (KUBE_PING / DNS_PING)
+
+## 2. 可用性・信頼性 (Availability & Reliability)
+
+### GKEクラスタ構成
+*   **リージョナルクラスタ:** コントロールプレーンを同一リージョン内の複数ゾーンに冗長化し、単一ゾーン障害に耐える構成とする。
+*   **ノードプール:** ワーカーノードを3つ以上のゾーンに分散配置する。
+*   **オートリペア/オートアップグレード:** ノードの自動修復と自動アップグレードを有効化し、運用負荷を軽減しつつ健全性を維持する。
+
+### Keycloak Pod構成
+*   **Podの冗長化:** 本番環境では最低3レプリカ以上で稼働させる。
+*   **Pod Anti-Affinity:** 同一のKeycloak Podが同じノードに偏らないよう、`topologyKey: "kubernetes.io/hostname"` および `topologyKey: "topology.kubernetes.io/zone"` を設定し、ゾーンとノードレベルで分散させる。
+*   **Pod Disruption Budget (PDB):** メンテナンス時やノード更新時に、同時に停止可能なPod数を制限（例: `minAvailable: 2`）し、サービス断を防ぐ。
+
+### データベース (Cloud SQL)
+*   **HA構成 (High Availability):** プライマリインスタンスとスタンバイインスタンスを別ゾーンに配置するHA構成を有効化する。
+*   **自動フェイルオーバー:** ゾーン障害やインスタンス障害時に自動的にスタンバイへ切り替わる設定とする。
+
+## 3. 性能・拡張性 (Performance & Scalability)
+
+### スケーリング戦略
+*   **Horizontal Pod Autoscaler (HPA):** CPU使用率またはメモリ使用率に基づき、Keycloak Pod数を自動でスケールアウト/インさせる。
+*   **Cluster Autoscaler:** Podの増加に合わせてノードプールを自動拡張する。
+
+### キャッシュとクラスタリング (Infinispan)
+*   **分散キャッシュ:** Keycloak内蔵のInfinispanを使用し、Pod間でセッション情報（User Sessions, Login Failures等）を同期する。
+*   **JGroupsディスカバリ:** GKE上でのPod間通信には `dns.DNS_PING` または `kubernetes.KUBE_PING` を採用し、動的なPodの増減に対応する。
+*   **オーナーシップ:** 分散キャッシュモード（`dist`）を使用し、セッション情報を複数のPodに分散・複製（`owners=2`以上推奨）して保持する。これによりPod再起動時のセッションロストを防ぐ。
+
+### データベース接続
+*   **Cloud SQL Auth Proxy:** サイドカーコンテナとして配置し、セキュアかつ効率的にDB接続を行う。
+*   **コネクションプーリング:** Keycloak側のDB接続プール設定（Agroal）を適切にチューニングする。必要に応じてDBの手前にPgBouncer等のプーラー導入を検討する（大規模時）。
+
+## 4. セキュリティ (Security)
+
+### ネットワークセキュリティ
+*   **限定公開クラスタ (Private Cluster):** ノードにパブリックIPを持たせず、外部からの直接アクセスを遮断する。外部への通信はCloud NATを経由する。
+*   **Cloud Armor:** GCLBにCloud Armor (WAF) を適用し、DDoS攻撃、SQLインジェクション、XSS等を防御する。
+*   **Authorized Networks:** マスターへのアクセスを特定のCIDRのみに制限する。
+
+### 通信の暗号化
+*   **End-to-End TLS:**
+    *   クライアント -> GCLB: HTTPS (Googleマネージド証明書利用)
+    *   GCLB -> Keycloak Pod: HTTPS (自己署名証明書等を使用し、Podまで暗号化経路を維持)
+*   **DB通信:** Cloud SQL Auth Proxyにより、アプリとDB間の通信は自動的に暗号化される。
+
+### 認証・認可 (IAM)
+*   **Workload Identity:** GKE上のService AccountとGoogle Cloud Service Account (GSA) を紐付け、KeycloakがCloud SQLやCloud Storageへアクセスする際に永続的なキー（JSON Key）を使用しない。
+
+### コンテナセキュリティ
+*   **イメージ:** 公式の軽量イメージ、またはDistrolessイメージベースのカスタムビルドを使用し、攻撃対象領域を最小化する。
+*   **Vulnerability Scanning:** Artifact Registryの脆弱性スキャン機能を有効化し、デプロイ前に脆弱性を検知する。
+
+## 5. 運用・監視 (Observability)
+
+### ロギング
+*   **Cloud Logging:** Keycloakのログ（標準出力）をCloud Loggingへ転送する。
+*   **JSON形式:** KeycloakのログフォーマットをJSONに設定し、Cloud Loggingでのクエリ・フィルタリングを容易にする。
+*   **監査ログ:** Keycloakの管理コンソール操作やユーザーログインイベントの監査ログを有効化する。
+
+### メトリクス・監視
+*   **Google Cloud Managed Service for Prometheus:** GKEのPrometheusマネージドサービスを利用する。
+*   **Keycloak Metrics SPI:** Keycloakにメトリクス用プラグイン（`keycloak-metrics-spi` 等）を導入し、JVMメトリクス、ログイン数、アクティブセッション数等をPrometheus形式で出力する。
+*   **ダッシュボード:** Grafana等を用いて可視化する。
+
+### ヘルスチェック
+*   **Probes:**
+    *   **Liveness Probe:** `/health/live` を監視し、デッドロック等の致命的な状態で再起動させる。
+    *   **Readiness Probe:** `/health/ready` を監視し、DB接続やクラスタ参加が完了するまでトラフィックを流さない。
+    *   **Startup Probe:** 初回起動時のDBマイグレーション時間を考慮し、長めの猶予を設定する。
+
+## 6. バックアップ・データ保全 (Backup & Disaster Recovery)
+
+### データベース
+*   **自動バックアップ:** Cloud SQLの自動バックアップ（日次）を有効化する。
+*   **ポイントインタイムリカバリ (PITR):** トランザクションログ（WAL）を保持し、特定の時点への復旧を可能にする。
+
+### 設定データ
+*   **Realm Export:** 定期的にRealm設定をJSONとしてエクスポートし、GCSバケット等へバックアップする運用スクリプトを用意する（DB破損時の保険）。
+*   **GitOps:** Realm設定の一部（クライアント設定など）をTerraformやKeycloak Operatorでコード管理し、Gitリポジトリを正とする。
+
+## 7. デプロイ・保守 (Deployment & Maintenance)
+
+### デプロイ戦略
+*   **Helm / Kustomize:** マニフェスト管理を行い、環境差異を吸収する。
+*   **Rolling Update:** 無停止更新を行う。
+    *   注意点: Keycloakのメジャーバージョンアップ時は、DBスキーマ変更が伴うため、公式ドキュメントに従い慎重に行う（Blue/Greenデプロイが推奨されるケースもある）。
+
+### 静的リソース
+*   **Cloud CDN:** GCLBでCloud CDNを有効化し、Keycloakの静的アセット（JS, CSS, ロゴ画像等）をキャッシュさせ、Podの負荷を軽減する。
+*
+
+
+
 Keycloakは、オープンソースのアイデンティティ・アクセス管理（IAM）ソフトウェアであり、アプリケーションやサービスのセキュリティを保護するための多くの機能を提供します。 Keycloakを本番環境で利用する際には、機能要件だけでなく、性能、可用性、セキュリティといった非機能要件を十分に考慮することが重要です。
 
 ### 性能・拡張性

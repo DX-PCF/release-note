@@ -1,204 +1,487 @@
-Google Cloud Armor: APIアクセス制御におけるIPアドレス識別、レート制限、および安全な導入方法に関するブリーフィング
-はじめに
-本ドキュメントは、Google Cloud Armorを用いてAPIアクセスを保護・制御する際の主要な設定、考慮事項、および推奨事項について解説します。特に、APIへのアクセス元IPアドレスの正確な識別、DDoS攻撃や過負荷からAPIを保護するためのレート制限、そしてサービス影響を最小限に抑えながら設定を安全に導入するためのプレビューモード活用に焦点を当てます。
---------------------------------------------------------------------------------
-1. Cloud ArmorにおけるIPアドレス識別の重要性
-Cloud Armorがアクセス元IPアドレスをどのように認識するかは、セキュリティポリシーの正確な適用に不可欠です。構成によってCloud Armorが認識するIPアドレスが異なるため、適切な設定が求められます。
-1.1. 自社側でのCDN/LB利用時の考慮点
-APIを提供する貴社が、Google Cloud Armorのさらに前段に別のCDN（Content Delivery Network）やロードバランサ（LB）サービスを導入している場合、Cloud ArmorからのIPアドレスの見え方が変わります。
-• 具体的なシチュエーション: 「Google Cloud Armorの手前にCDNやLBが挟まっている」とは、基本的に「APIを提供する貴社（システム構築側）」の構成を指します。
-    ◦ 構成例: [取引先] → [Akamai / Fastly (貴社契約)] → [Google Cloud Armor (貴社環境)] → [APIサーバ]
-    ◦ この構成の目的:
-        ▪ 静的コンテンツ（画像など）をCDNでキャッシュして高速化したい。
-        ▪ Google Cloudに届く前に、強力なDDoS対策を他社製品で行いたい。
-• Cloud Armor設定の注意点: この構成では、「Cloud Armorから見ると『すべてのアクセスが Akamai / Fastly から来ている』ように見えます。」 そのため、Cloud Armorの標準設定である「送信元IP（Layer3）」で制限をかけると、正規の通信までブロックしたり、逆に誰でも通してしまったりするリスクがあります。
-• 推奨される対応: 「『X-Forwarded-For ヘッダーの中にある、本当の取引先のIPを見て判断する』 という設定が必要になります。」
-    ◦ 補足: 貴社が意図的にAkamaiやFastlyなどを導入しない限り、このケースは考慮不要です。「Internet -> Cloud Armor -> API」という構成であれば、Source IP（レイヤ3）の標準設定で問題ありません。
-1.2. 取引先側でのOutbound Proxy/中継システム利用時の考慮点
-APIを利用する取引先（クライアント）のネットワーク環境に、インターネットへの「出口」となるプロキシや中継システムが存在する場合も、Cloud Armorが認識するIPアドレスは取引先の個別の端末IPではなく、その中継システムのIPとなります。
-• 具体的なシステム例:
-    ◦ A. 社内プロキシサーバ (Forward Proxy): 昔ながらの企業ネットワーク構成。例: Blue Coat (Symantec), Squid, i-FILTER など。
-        ▪ 登録すべきIP: このプロキシサーバがインターネットに出る際の「グローバルIPアドレス」。
-    ◦ B. クラウド型セキュリティ・ゲートウェイ (SWG / SASE): 最近増加しているクラウド経由のインターネット出口。例: Zscaler, Palo Alto Prisma Access, Netskope など。
-        ▪ 登録すべきIP: Zscaler等の出口IPアドレス（※Zscaler等はIPが頻繁に変わる、または範囲が広いため、取引先が「固定IPオプション」を契約しているか確認が必要です）。
-    ◦ C. パブリッククラウドのNATゲートウェイ: 取引先のシステムが AWS / Azure / Google Cloud 上にある場合。例: AWS NAT Gateway, Azure NAT Gateway, Google Cloud Cloud NAT。
-        ▪ 登録すべきIP: NATゲートウェイに割り当てられた「Elastic IP（固定パブリックIP）」。
-    ◦ D. システム連携基盤 (iPaaS / EAI): 取引先が連携ツールを使ってAPIを呼ぶ場合。例: Salesforce, MuleSoft, Boomi, DataSpider など。
-        ▪ 登録すべきIP: そのツールのベンダーが公開しているIPアドレス範囲。
-• Cloud Armorからの見え方と推奨: 「取引先がプロキシを使っていても、NATを使っていても、Cloud Armor側から見れば 『パケットの送信元IP（Source IP）』 であることに変わりはありません。」 したがって、「『User IP addresses overview』の設定はデフォルト（Source IPを見る）のままで、教えてもらったIPを許可リストに入れる という運用が最も安全で確実です。」
-• お客様へのヒアリングの勘所: Cloud Armorの設定をシンプルにするため、取引先担当者には以下のように確認することが推奨されます。 「『御社のシステムからインターネットへ抜ける際の、グローバルIPアドレス（出口IP） を教えてください。プロキシやNATゲートウェイをご利用の場合は、その出口のIPをご教示お願いします。』」
---------------------------------------------------------------------------------
-2. レート制限によるAPI保護
-APIをDoS攻撃やバグによる過負荷から保護するために、Cloud Armorのレート制限機能を導入します。
-2.1. レート制限の目的と基本設定
-• 目的: 「許可された取引先IPであっても、バグや攻撃、誤操作による大量アクセス（DoS）でAPIサーバがダウンするのを防ぐ機能です。」
-• 制限の単位（Key）: 「通常は 『IPアドレスごと』 に制限をかけます。」これにより、個別の取引先からの過剰なアクセスを効果的に抑制できます。
-• 制限のアクション（Action）:
-    ◦ Throttle（スロットル）： 「上限を超えたリクエストだけを拒否（429エラー等を返却）し、上限内であれば引き続き通信を許可します。」 API利用においては、システム連携への影響を最小限にするため、このThrottle方式が推奨されます。
-    ◦ Ban（バン）： 「上限を超えた瞬間、そのIPからの通信を一定時間（例: 5分間）すべて遮断します。」 正規ユーザーが誤って短時間に大量リクエストを送信した場合、業務が完全に停止するリスクがあるため、B2B APIでは慎重な検討が必要です。
-2.2. しきい値の設定とレスポンスコード
-• しきい値の設定: 「例: 『1分間に 1000リクエスト』など」のように、想定されるアクセスパターンに基づいて具体的な数値を設定します。この値は、後述するプレビューモードで検証することが重要です。
-• レスポンスコード: 制限に引っかかった際、クライアントに返すHTTPレスポンスコードを適切に使い分けることで、取引先側での原因究明が容易になります。
-    ◦ IP制限（Default Deny）で拒否する場合: 403 Forbidden (アクセス権なし)
-    ◦ レート制限で拒否する場合: 429 Too Many Requests (リクエスト多すぎ)
-2.3. 推奨されるレート制限ポリシー
-• IP識別モード: 「Source IP (Layer 3)」
-• 対象IPリスト: 取引先より受領したIPアドレスで許可リストを作成
-• レート制限キー: 「IP address」
-• アクション: 「Throttle」（超過分のみ429 Too Many Requestsを返却）
-• しきい値: 事前測定により決定
---------------------------------------------------------------------------------
-3. プレビューモードを活用した安全な設定導入
-Cloud Armorのルールを本番環境に適用する前に、その影響を安全に確認するためにプレビューモードを最大限に活用することが推奨されます。
-3.1. プレビューモードの挙動
-Cloud Armorのルールは優先度（Priority）の低い順に評価され、マッチした時点で処理が終了するのが通常です。しかし、あるルールをプレビューモード(Preview Mode)に設定すると、以下の特殊な挙動を示します。
-• 条件にマッチするか判定する。
-• マッチした場合、「『もし適用されていたらどうなったか』を ログに記録 する。」
-• アクション（許可/拒否）は実行しない。
-• 「『次の優先度のルール』へ評価を移す（ここが重要）。」
-3.2. 誤った設定パターンと正しい導入手順
-プレビューモードの「透過する（素通りする）」特性を理解せずに設定すると、意図しない通信遮断などの事故につながる可能性があります。
-• やってはいけない設定（事故パターン）: 既存の「IP許可リスト」ルール（Action: Allow）を、直接「レート制限付き」ルール（Action: Rate Based Ban）に変更し、そのルールをプレビューモードに設定するケースです。
-    ◦ 例:
-        ▪ 現状: 優先度1000 (取引先Aを許可), Default (すべて拒否) → 取引先Aは通信可能。
-        ▪ 変更後 (プレビューON): 優先度1000 (取引先Aをレート制限) 【Preview Mode】, Default (すべて拒否)
-        ▪ 結果: 取引先Aのアクセスは優先度1000にマッチしログ記録されますが、プレビューのためアクションは実行されません。トラフィックは次のルールに流れ、Defaultルール（すべて拒否）にマッチして通信が遮断されてしまいます（403 Forbidden）。
-    ◦ 「『プレビューにしたルールは透過する（素通りする）』 ため、その下にキャッチするルールがないと、最後の『すべて拒否』まで落ちてしまいます。」
-• 正しい設定手順（安全な導入方法）: レート制限をテストする場合、「既存の許可ルールはそのまま残し、その『手前（優先度高）』にプレビュー用のルールを追加する」のが鉄則です。
-    ◦ 構成例:
-        ▪ 優先度 900 (新規追加): 取引先A (IP指定) + レート制限設定, Preview (ON)
-            • 「ここでログ出力（本来なら制限されていたか、許可されていたかが記録される）。アクションは実行せず、次へ進む。」
-        ▪ 優先度 1000 (既存): 取引先A (IP指定), Enforced (OFF)
-            • 「ここで実際に 許可 される。通信は正常に通る。」
-        ▪ Default: すべて拒否, Enforced
-    ◦ この構成であれば、取引先は優先度1000のルールで今まで通りアクセスでき、優先度900のログでレート制限の影響を安全に確認できます。
-    ◦ 「プレビュー設定した特定のルールは『適用なし（ログのみ）』として扱われ、トラフィックは 『下位のルール』 に流れます。」
-3.3. プレビューモードの活用期間
-「いきなり遮断設定を入れると、正常な通信を止めてしまうリスクがあります。最初は『Preview Mode』をONにし、ログで『もし制限がかかっていたらどうなっていたか』を確認期間を設けることを推奨します。」 「最初の2週間はプレビューモードをON」にし、ログで正常な通信が引っかかっていないかを確認し、問題なければ正式に適用（Enforce）します。
---------------------------------------------------------------------------------
-4. レート制限付きIP許可の具体的な設定例
-Cloud Armorで「特定の取引先IPのみ許可（ホワイトリスト）」し、かつ「そのIPに対してレート制限（Rate Limiting）をかける」場合の具体的な設定例と考慮点を以下に示します。
-• 最も重要な概念: 「『許可（Allow）』ルールの中に『レート制限』の設定を組み込む」という点です。（「許可ルール」と「レート制限ルール」を別々に作るわけではありません。）
-4.1. ポリシーの基本方針
-• デフォルト: すべて拒否 (Deny 403)
-• 取引先ごとのルール: 指定IPのみ許可するが、閾値を超えたら制限する。
-4.2. 設定例
-優先度 (Priority)
-マッチ条件 (Match)
-アクション (Action)
-レート制限設定 (Rate Limiting Parameters)
-挙動の説明
-1000
-IP: xxx.xxx.xxx.xxx (A社 本番環境)
-Rate Based Ban (レート制限)
-基準: 1000リクエスト / 1分キー: IPアドレス超過時: 429 エラーを返す (Throttle)
-A社からのアクセスは通常許可。ただし分間1000回を超えた分だけエラーにする。
-2000
-IP: 198.51.100.20 (B社 検証環境)
-Rate Based Ban (レート制限)
-基準: 100リクエスト / 1分キー: IPアドレス超過時: 429 エラーを返す (Throttle)
-B社は検証用なので上限を低く設定。超過分はエラー。
-Default
-すべて (Any)
-Deny (403)
--
-上記以外のIPからのアクセスはすべて拒否。
-4.3. 設定時の重要考慮点
-1. アクションは「Allow」ではなく「Rate Based Ban」を選ぶ: Google Cloudコンソールで設定する際、単純な許可リストなら「Allow」を選びますが、レート制限付き許可にする場合は 「Rate Based Ban」 というアクションタイプを選択します。
-• Conform Action（閾値内）: Allow（許可）
-• Exceed Action（閾値超過）: Deny Status 429（拒否） この組み合わせが1つのルール内で設定されます。
-2. 「Throttle（スロットル）」か「Ban（バン）」か:
-• Throttle（推奨）: 「閾値を超えている間、超えた分のリクエストだけ を拒否します。」攻撃ではなく「バグで一時的にループした」ような場合、ループが止まれば即座に通信可能になるため、B2B APIでは推奨されます。
-• Ban: 「閾値を超えた瞬間、そのIPを 指定時間（例: 5分間）完全にブロック します。」正規ユーザーの誤操作であっても業務が長時間止まるリスクがあるため、B2B APIでは避けるべきです。
-3. プレビューモード (Preview Mode) の活用期間: 「設定していきなりブロックが始まると、設定ミス（見積もりが甘かった等）があった場合にトラブルになります。」 推奨: 「『最初の2週間はプレビューモードをONにします』」 「ログを見て、正常な取引先の通信が引っかかっていないか確認してから、正式に適用（Enforce）します。」
-4. レスポンスコード (Response Code):
-• IP制限（Default Deny）で拒否する場合: 403 Forbidden (アクセス権なし)
-• レート制限で拒否する場合: 429 Too Many Requests (リクエスト多すぎ) このように使い分けることで、「取引先側で『なぜエラーになったか（IPが変わったのか、連打しすぎたのか）』が判別しやすくなります。」
---------------------------------------------------------------------------------
-5. お客様への提案・確認事項（まとめ）
-Cloud Armorの導入をスムーズに進めるために、お客様（取引先担当者）には以下のように提案・確認することが推奨されます。
-• 【提案内容】: 「セキュリティポリシーとして、以下の構成を推奨します。」
-    ◦ 基本動作: 登録されていないIPアドレスからの通信は「403エラー」で拒否します。
-    ◦ 許可ルール: いただいた取引先IPアドレスを許可リストに追加します。
-    ◦ 過負荷対策: 許可したIPであっても、システムダウンを防ぐため「レート制限」を適用します。
-        ▪ 閾値を超えたリクエストのみ「429エラー」を返します（Throttle方式）。
-        ▪ 閾値内に収まれば、自動的に通信は復旧します。
-• 【確認事項】: 「導入初期のトラブルを防ぐため、最初の2週間程度は**『プレビューモード（ログ出力のみ・遮断なし）』**で稼働させ、実際のアクセス数を確認した上で閾値をチューニングしてもよろしいでしょうか？」
+1. Excel管理とCloud Armor仕様における最大の懸念点
+① 「1ルールあたり最大10 IP」という厳しい制約
+Cloud Armorの基本仕様（Standardティア）では、1つのルール内に指定できるIPアドレス（またはCIDR）の数は「最大10個」までと定められています23。 取引先の数やIPアドレスが増え、10個を超過した場合は、優先度（Priority）を分けた新しいルールを複数作成し、IPを分割して登録しなければなりません13。 Excel上で「どのルールの枠が空いているか」「11個目のIPだから新しい優先度番号を発番しよう」といった管理を手動で行うのは非常に煩雑であり、運用破綻の大きな原因となります。
 
-はじめに
-本ドキュメントでは、API保護を目的にGoogle Cloud Armorを導入する際の主要な論点である「IPアドレスの正確な識別」「レート制限（Rate Limiting）の設計」「プレビューモードを用いた安全な導入」について解説します。
-特に**プレビューモードの設定ミスによる意図しない通信遮断（事故）**を防ぐための正しい手順を重点的に記載しています。
+② 手作業によるヒューマンエラーのリスク
+Excelのパラメータシートから、手作業でGoogle Cloud Consoleの画面に入力したり、手動でコマンドを実行したりする運用は、入力ミス（サブネットマスク /32 の付け忘れ、スペースの混入など）を引き起こしやすくなります。 このようなミスは「正当な取引先がAPIにアクセスできない（障害）」や「意図しないIPからのアクセスを許可してしまう（セキュリティインシデント）」に直結します。
 
-1. Cloud Armor における IP アドレス識別の考慮事項
-Cloud Armorが「どのIPアドレスを送信元とみなすか」は、システム構成（CDNの有無）やクライアント環境（プロキシの有無）によって異なります。
+③ 変更履歴（監査証跡）とバージョン管理の弱さ
+Excelファイルの管理（共有フォルダ等での保管）では、「誰が、いつ、どの取引先の要件でIPを追加・削除したか」の追跡が難しくなります。誤ってIPを削除してしまった際などのトラブルシューティングや、将来的な監査の際に問題になりがちです。
 
-1.1. 自社（サーバー）側でCDN/LBを前段に配置している場合
-構成: [Client] -> [Akamai/Fastly] -> [Google Cloud Armor] -> [API]
+2. 推奨される管理方法（ベストプラクティス）
+これらの懸念を解消するため、インフラエンジニアとしては以下のいずれかのアプローチを採用することを強く推奨します。
 
-課題: Cloud Armorは通常 L3ヘッダー（送信元IP）を参照するため、この構成では全ての通信が「CDNのIP」として認識されます。
-リスク: 標準設定のままでは、正規クライアントの識別ができず、過剰なブロックや穴の空いたセキュリティになる可能性があります。
-対策: X-Forwarded-For ヘッダー内のクライアントIPを参照する設定が必要です。
-補足: 前段に他社CDNがなく、直接 Google Cloud (GCLB + Armor) で受ける場合は、標準の「Source IP（L3）」設定で問題ありません。
-1.2. 取引先（クライアント）側でプロキシ/NATを利用している場合
-構成: [Client PC] -> [Proxy/NAT/SWG] -> [Internet] -> [Google Cloud Armor]
+アプローチA: IaC（Terraform）によるコード管理と自動分割（強く推奨）
+Excelでの管理をやめ、インフラ構成管理ツールの Terraform と Git を活用してIPリストをコード（テキスト）として管理する方法です。
 
-課題: クライアントがZscaler等のSWGや、AWS NAT Gateway等を利用している場合、Armorには「端末IP」ではなく「出口（Exit）IP」が見えます。
-推奨方針: 設定はデフォルト（Source IP参照）のままで運用します。
-取引先に対し、「インターネット出口のグローバルIPアドレス」をヒアリングし、そのIPを許可リストに登録します。
-複雑なヘッダー解析を行うよりも、L3レベルでの制御が最も堅牢で確実です。
-2. レート制限 (Rate Limiting) の設計指針
-APIの可用性を維持するため、特定IPからの過剰なリクエストを制御します。B2B APIにおいては、「Ban（完全遮断）」よりも「Throttle（間引き）」が推奨されます。
+メリット:
+Terraformの組み込み関数（chunklist など）を使用することで、「リスト化された大量のIPアドレスを、自動的に10個ずつに分割してCloud Armorの複数ルールとして展開する」 という処理が自動化できます。人間は単にIPリストに追記するだけで済みます。
+Gitで管理するため、「誰がいつ変更したか（コミット履歴）」や「ダブルチェックの承認（Pull Request）」などのプロセスを確実に残すことができます。
+アプローチB: Cloud Armor Enterprise「アドレスグループ」の活用
+もし取引先が非常に多く、管理するIPアドレスが数百〜数千に及ぶ場合は、Cloud Armorの 「アドレスグループ（Address Groups）」 機能の利用を検討します2。
 
-2.1. 推奨設定パラメータ
-識別キー: IP address
-アクション: Throttle (スロットル)
-理由: バグ等で一時的にループした場合でも、リクエスト頻度が下がれば即座に復旧できるため。Ban（一定時間遮断）は業務停止リスクが高い。
-レスポンスコードの使い分け:
-403 Forbidden: IP許可リストに入っていない（アクセス権なし）
-429 Too Many Requests: 許可されたIPだが、投げすぎている（レート制限超過）
-メリット: クライアント側でエラー原因（設定ミスか、過負荷か）の切り分けが容易になります。
-3. 【重要】プレビューモード (Preview Mode) の安全な導入手順
-Cloud Armorのプレビューモードは、**「ルールが適用された場合のログを出すが、アクションは実行せず、次のルール評価へ進む（透過する）」**という特性を持ちます。この挙動の理解不足は事故に直結します。
+メリット:
+IPv4で最大150,000個の大規模なIPリストを「1つの名前付きリスト」として作成でき、「1ルール10IPまで」という制限を気にすることなく、1つのルールでまとめて管理できます23。
+注意点:
+この機能を利用するには、プロジェクトを Cloud Armor Enterprise（旧 Managed Protection Plus、定額課金プラン） に登録する必要があります（Standardプランでは利用不可）2。コスト要件との兼ね合いになります。
+アプローチC: Excel管理を正とし、自動化スクリプトを構築
+お客様の業務プロセスの都合上「どうしてもExcel等の台帳を正としたい」という場合の妥協案です。
 
-3.1. 事故が起きる「誤った設定」
-既存の許可ルールを直接プレビューモードに変更してはいけません。
+対応策:
+手作業でのコンソール入力を禁止し、「ExcelファイルからCSVをエクスポートし、Pythonなどのスクリプトで読み込んで gcloud コマンドを自動生成・実行する仕組み」 を構築します。
+スクリプト内で「IPアドレスを10個ずつに分割し、ルールの優先度（Priority）を自動連番で付与する」ロジックを実装することで、手作業のミスを防ぎます1。
 
-NG構成例:
-Priority 1000: 取引先Aをレート制限 [Preview: ON]
-Default: すべて拒否 (Deny 403)
-結果: Priority 1000にマッチしてもPreviewのため透過し、次のDefaultルールで**拒否（403）**されます。
-現象: 「ログを取ろうとしただけで、本番通信を全遮断してしまった」
-3.2. 正しい導入手順（2段構え）
-検証期間中は、既存の許可ルールを残し、その**手前（優先度高）**にプレビュー用のルールを追加します。
 
-OK構成例:
-Priority 900 (新規): 取引先A + レート制限 [Preview: ON]
-挙動: ログ記録のみ。アクション実行せず次へ進む（AllowもDenyもしない）。
-Priority 1000 (既存): 取引先A [Action: Allow]
-挙動: ここで実際に許可され、通信が通る。
-Default: すべて拒否 (Deny 403)
-3.3. 推奨導入期間
-設定直後は 2週間程度のプレビュー期間 を設けることを推奨します。
-ログ（jsonPayload.previewSecurityPolicy）を確認し、正規のトラフィックが制限値に抵触していないか確認後に Enforce（適用）します。
-4. 具体的な設定構成例（レート制限付き許可リスト）
-「許可リスト」と「レート制限」を別々に作るのではなく、**「許可ルールのアクションとしてレート制限（Rate Based Ban）を選択する」**点がポイントです。
+1. Terraformによる実装案（Excelからの連携）
+Excelのパラメータシートを正とする場合、手作業でのコンソール入力は避け、**「ExcelからCSVを出力（エクスポート）し、それをTerraformに読み込ませて自動計算させる」**アプローチが最適です。
 
-Priority	マッチ条件	アクション設定	挙動
-1000	IP: 203.0.113.5<br>(取引先A 本番)	Rate Based Ban<br>- 基準: 1000 req/min<br>- 超過時: 429 (Throttle)	通常は許可。<br>分間1000回を超えた分のみ429エラー。<br>閾値内になれば即時復旧。
-2000	IP: 198.51.100.20<br>(取引先B 検証)	Rate Based Ban<br>- 基準: 100 req/min<br>- 超過時: 429 (Throttle)	検証用のため閾値を低く設定。<br>超過分は429エラー。
-Default	すべてのIP	Deny (403)	上記以外のアクセスはすべて拒否。
-5. 顧客への提案・確認事項テンプレート
-案件進行時、お客様（システム担当者）に対して以下の確認・提案を行ってください。
+Terraformの組み込み関数（csvdecode, chunklist）と、ご提示いただいた数式ロジックを組み合わせると、以下のようなコードで完全自動化が可能です。
 
-ヒアリング・提案スクリプト
-接続元IPの確認
+① 用意するCSV（ip_list.csv）
+Excelから以下のようなシンプルなCSVを出力するルールとします。
 
-「御社のシステムからインターネットへ抜ける際の**グローバルIPアドレス（出口IP）**をご教示ください。プロキシやNATゲートウェイをご利用の場合は、その出口のIPが必要です。」
+branch_id,ip_address
+V000,192.168.0.1/32
+V000,192.168.0.2/32
+V999,10.0.0.1/32
+V999,10.0.0.2/32
+... (V999が11個あると仮定)
+② Terraformコード（main.tf）
+locals {
+  # 1. CSVファイルを読み込み
+  csv_data = csvdecode(file("ip_list.csv"))
 
-ポリシーの提案
+  # 2. 拠点IDごとにIPアドレスをリストにまとめる（Terraformのグループ化演算子 `...` を使用）
+  # 変換イメージ: { "V000" = ["192.168.0.1/32", ...], "V999" = ["10.0.0.1/32", ...] }
+  branch_ips = {
+    for row in local.csv_data : row.branch_id => row.ip_address...
+  }
 
-「セキュリティポリシーとして、未登録IPは『403エラー』で拒否し、許可IPに対しては過負荷防止のための『レート制限』を適用する構成を推奨します。閾値を超えた場合のみ『429エラー』が返り、収まれば自動復旧する仕組みです。」
+  # 3. Cloud Armorの仕様に合わせてルールを計算・フラット化
+  rules_flat = flatten([
+    for branch_id, ips in local.branch_ips : [
+      # IPを10個ずつに分割（iは0から始まるインデックス、chunkは10個以下のIPリスト）
+      for i, chunk in chunklist(ips, 10) : {
+        branch_id  = branch_id
+        # "V999" -> "999" のように数値として抽出
+        branch_num = tonumber(substr(branch_id, 1, 3))
+        # プライオリティ計算: 2000000000 + ((9000 + 拠点番号) * 10000) + チャンク番号
+        # 例: V999の1番目(i=0) -> 2099990000, 2番目(i=1) -> 2099990001
+        priority   = 2000000000 + ((9000 + branch_num) * 10000) + i
+        ips        = chunk
+      }
+    ]
+  ])
+}
 
-導入プロセスの合意
+# 4. Cloud Armor リソースの作成
+resource "google_compute_security_policy" "policy" {
+  name        = "partner-api-allowlist"
+  description = "取引先APIアクセス制御"
 
-「設定ミスによる業務影響を防ぐため、最初の**2週間程度は『プレビューモード（遮断なし・ログ出力のみ）』**で稼働させます。実際のアクセス数を確認し、閾値が適切か判断してから正式適用したいと考えていますが、よろしいでしょうか？」
+  # デフォルトの拒否ルール（最低優先度: 2147483647）
+  rule {
+    action   = "deny(403)"
+    priority = "2147483647"
+    match {
+      versioned_expr = "SRC_IPS_V1"
+      config {
+        src_ip_ranges = ["*"]
+      }
+    }
+  }
+
+  # 計算したルールを動的に展開
+  dynamic "rule" {
+    for_each = { for r in local.rules_flat : tostring(r.priority) => r }
+    content {
+      action   = "allow"
+      priority = rule.value.priority
+      match {
+        versioned_expr = "SRC_IPS_V1"
+        config {
+          src_ip_ranges = rule.value.ips
+        }
+      }
+      description = "Allow ${rule.value.branch_id} - part ${rule.value.priority % 10 + 1}"
+    }
+  }
+}
+このコードにより、**「ExcelにIPを追記してCSV保存し、Terraformを実行するだけ」**で、指定のルールに則ったCloud Armorの複雑な分割ルールが自動的にクラウドへ適用されます1。
+
+2. インフラ運用における「重大な懸念点と対応」
+設計ロジック自体は完璧ですが、Google Cloud の仕様上限により、この仕組みを本番運用するにあたって必ず事前に対応しなければならない懸念点があります。
+
+懸念①：Cloud Armorの「ルール数上限（Quotas）」の超過（※要対応）
+Cloud Armor Standardティアでは、1つのセキュリティポリシーに追加できる**ルールの最大数はデフォルトで「200」**と定められています2。 V000～V999まで拠点が広がり、各拠点が最低1つのルールを持つとすると、最大で1000個以上のルールが生成されるため、デフォルトの上限に確実に引っかかり terraform apply がエラーで落ちます。
+
+対応策: Google Cloud コンソールの「割り当て（Quotas）」画面、またはサポート経由で、以下の割り当ての上限引き上げ申請を事前に行ってください。
+Security policy rules per policy（ポリシーあたりのルール数）
+Security policies per project（プロジェクトあたりのルール総数など関連クォータ）3
+懸念②：Excel特有の入力揺れによるデプロイエラー
+Excelで管理すると、セルの末尾に意図せず「見えない半角スペース」が入ったり、/32 の書き忘れなどが発生しやすくなります。Terraformは不正なIP形式を検知するとデプロイ全体をストップさせます。
+
+対応策: Excel（パラメータシート）側にデータの入力規則（プルダウンや書式チェック）を厳格に設定するか、Terraform側のコードで replace(row.ip_address, " ", "") のように空白除去処理を挟むと、ヒューマンエラーによるCI/CDパイプラインの停止を防ぐことができます。
+懸念③：Terraform Stateの肥大化と実行速度
+1000個以上の動的ルール（dynamic "rule"）を処理すると、terraform plan や apply の実行時間が長くなる傾向があります。運用上問題になるほどの遅さではありませんが、ルール数が極端に多い場合はポリシーファイルを複数に分割する等の設計変更も視野に入れておく必要があります。
+
+1. Terraformでの実装方法（静的ルールと動的ルールの共存）
+Terraformの google_compute_security_policy リソースブロック内では、手動でベタ書きする通常の rule {} ブロックと、CSVから自動生成する dynamic "rule" {} ブロックを同時に並べて記述することが可能です。
+
+以下が、既存のルールと共存させる場合のコードイメージです。
+
+resource "google_compute_security_policy" "policy" {
+  name        = "existing-partner-api-policy"
+  description = "既存のルールと取引先IP制御を統合したポリシー"
+
+  # ==========================================
+  # 【既存のルール】Terraformコードとして静的に記述
+  # ==========================================
+  
+  # 例1: SQLインジェクションなどのWAF防御ルール (優先度: 1000)
+  rule {
+    action   = "deny(403)"
+    priority = 1000
+    match {
+      expr {
+        expression = "evaluatePreconfiguredExpr('sqli-stable')"
+      }
+    }
+    description = "WAF: SQLインジェクション防御"
+  }
+
+  # 例2: 運用保守用の社内IP許可ルール (優先度: 2000)
+  rule {
+    action   = "allow"
+    priority = 2000
+    match {
+      versioned_expr = "SRC_IPS_V1"
+      config {
+        src_ip_ranges = ["203.0.113.0/24"] # 社内IP
+      }
+    }
+    description = "社内ネットワークからのアクセス許可"
+  }
+
+  # ==========================================
+  # 【今回追加するルール】CSVから動的生成
+  # ==========================================
+  
+  # 先ほどのロジックで生成した取引先IP群を展開 (優先度: 2090000000番台)
+  dynamic "rule" {
+    for_each = { for r in local.rules_flat : tostring(r.priority) => r }
+    content {
+      action   = "allow"
+      priority = rule.value.priority
+      match {
+        versioned_expr = "SRC_IPS_V1"
+        config {
+          src_ip_ranges = rule.value.ips
+        }
+      }
+      description = "Allow ${rule.value.branch_id} - part ${rule.value.priority % 10 + 1}"
+    }
+  }
+
+  # ==========================================
+  # 【デフォルトルール】すべてのルールの最後に評価される
+  # ==========================================
+  rule {
+    action   = "deny(403)"
+    priority = 2147483647
+    match {
+      versioned_expr = "SRC_IPS_V1"
+      config {
+        src_ip_ranges = ["*"]
+      }
+    }
+    description = "デフォルト拒否"
+  }
+}
+このように記述することで、既存の構成を壊すことなく、Excel・CSV管理のIPリストを同居させることができます。
+
+2. 【超重要】優先度（Priority）設計の注意点
+既存のルールと共存させるにあたり、セキュリティインシデントを防ぐためにルールの評価順序（Priority）の設計が極めて重要になります。
+
+Cloud Armorは、**「優先度の数値が小さい（若番）ルールから順に評価し、最初にマッチしたアクション（Allow / Deny）を実行して処理を終了」**します。
+
+今回お客様が設計された取引先IPの優先度は 「2,090,000,000番台」 であり、最大値（約21.4億）に近い、非常に優先度の低い（後回しにされる）数値となっています。この設計は、他のルールと共存させる上で大正解です。
+
+以下の点に注意して、既存ルールの優先度を確認・調整してください。
+
+① WAFなどの「Denyルール」は、取引先IPより「小さい数値（高い優先度）」にする
+もし、「取引先であっても、SQLインジェクションやクロスサイトスクリプティング（XSS）などの攻撃通信はブロックしたい」場合、WAFのDenyルールの優先度を 1000 などの若番に設定する必要があります。
+
+正しい順序: WAF (1000/Deny) ＞ 取引先IP (20億番台/Allow)
+悪意のある通信は1000番でブロックされ、健全な通信は20億番台で許可されます。
+誤った順序: 取引先IP (1000/Allow) ＞ WAF (20億番台/Deny)
+取引先のIPからの通信はすべて無条件で許可（Allow）されてしまい、WAF検査を素通りしてしまいます。
+② 特定IPの「明示的なブロック（Denylist）」も若番にする
+「この取引先は解約した」「このIPからDDoS攻撃が来ている」などの理由で明示的にアクセスを遮断するブラックリストがある場合も、優先度を 2,090,000,000 よりも小さい数値（例: 100 など）に配置する必要があります。
+
+3. もし既存のルールが「コンソールから手動で作られている」場合
+もし、既存のSecurity PolicyがまだTerraformコード化されておらず、Google Cloudのコンソール（画面）から手作業で作られている場合は、少し手順が変わります。
+
+Terraformで管理を開始するために、以下の手順で既存リソースをTerraformの管理下（State）に取り込む必要があります。
+
+上記の例のように、既存ルールの設定をTerraformコード（rule {}）として書き起こす。
+terraform import コマンドを実行し、GCP上の既存リソースとTerraformを紐付ける。
+コマンド例: terraform import google_compute_security_policy.policy existing-partner-api-policy
+terraform plan を実行し、差分がない（コンソールの設定とコードが一致している）ことを確認する。
+その後、動的生成の dynamic "rule" {} ブロックを追記して terraform apply で取引先IPを追加する。
+既存のルールがすでにTerraformで管理されているか、手動で作成されたものかによって手順が変わりますので、もしインポート手順等で不明点があれば詳細をご案内いたします。
+
+
+
+1. ファイル構成イメージ
+.
+├── parameters.yaml       # 【データ】既存ルールと拠点ごとのIPリストを定義
+├── main.tf               # 【呼び出し元】YAMLを読み込み、計算してモジュールへ渡す
+└── modules/
+    └── cloud_armor/
+        ├── main.tf       # 【モジュール】Cloud Armorの本体（汎用化）
+        └── variables.tf  # 変数定義
+2. YAMLファイルの定義（parameters.yaml）
+既存の静的ルール（WAFや社内IP）と、取引先のIPリストを1つのYAMLで管理します。拠点IDの直下にリスト形式でIPを書けるのがYAMLの強みです。
+
+# parameters.yaml
+
+# 1. 既存のルール（WAFなど）
+existing_rules:
+  - action: "deny(403)"
+    priority: 1000
+    description: "WAF: SQLインジェクション防御"
+    # WAFルールの場合は expression を指定
+    expression: "evaluatePreconfiguredExpr('sqli-stable')"
+  - action: "allow"
+    priority: 2000
+    description: "運用保守用の社内IP"
+    # IP制限ルールの場合は src_ip_ranges を指定
+    src_ip_ranges: 
+      - "203.0.113.0/24"
+
+# 2. 取引先IPリスト（自動で10個ずつ分割・計算される対象）
+partner_ips:
+  V000:
+    - "192.168.0.1/32"
+    - "192.168.0.2/32"
+  V999:
+    - "10.0.0.1/32"
+    - "10.0.0.2/32"
+    - "10.0.0.3/32"
+    # ...11個以上あってもOK
+3. 呼び出し元のTerraform（main.tf）
+ここでYAMLを読み込み（yamldecode）、ご提示いただいた**「V000の読み替え」「10個ずつの分割」「プライオリティの自動計算」**を行います。
+最後に、既存ルールと計算済みの取引先ルールをガッチャンコ（concat）して、モジュールに渡します。
+
+locals {
+  # YAMLファイルの読み込み
+  config = yamldecode(file("${path.module}/parameters.yaml"))
+
+  # ① 既存ルールの整形
+  existing_rules = [
+    for r in local.config.existing_rules : {
+      action        = r.action
+      priority      = r.priority
+      description   = r.description
+      # YAMLにキーが存在しない場合はnullを入れる（モジュール側で分岐するため）
+      expression    = try(r.expression, null)
+      src_ip_ranges = try(r.src_ip_ranges, null)
+    }
+  ]
+
+  # ② 取引先IPの計算とルールの動的生成
+  partner_rules = flatten([
+    for branch_id, ips in local.config.partner_ips : [
+      for i, chunk in chunklist(ips, 10) : {
+        action        = "allow"
+        description   = "Allow ${branch_id} - part ${i + 1}"
+        # V999 -> 999 の抽出
+        branch_num    = tonumber(substr(branch_id, 1, 3))
+        # プライオリティ計算: 2000000000 + ((9000 + 拠点番号) * 10000) + チャンク番号
+        priority      = 2000000000 + ((9000 + branch_num) * 10000) + i
+        
+        # 取引先ルールは常にIPベース
+        expression    = null
+        src_ip_ranges = chunk
+      }
+    ]
+  ])
+
+  # ③ 既存ルールと取引先ルールを結合
+  all_rules = concat(local.existing_rules, local.partner_rules)
+}
+
+# モジュールの呼び出し
+module "cloud_armor" {
+  source = "./modules/cloud_armor"
+
+  policy_name = "partner-api-policy"
+  rules       = local.all_rules
+}
+4. モジュール側（modules/cloud_armor/main.tf）
+呼び出し元で複雑な計算は全て終わらせているため、モジュール側は**「渡されたルールのリストをループで展開するだけ」**の非常にシンプルで汎用的な作りになります。
+ポイントは、WAFルール（expr）とIPルール（config）のどちらが渡されても対応できるように dynamic ブロックで分岐させることです。
+
+variable "policy_name" { type = string }
+variable "rules" { type = any }
+
+resource "google_compute_security_policy" "policy" {
+  name = var.policy_name
+
+  # デフォルトの拒否ルール
+  rule {
+    action   = "deny(403)"
+    priority = "2147483647"
+    match {
+      versioned_expr = "SRC_IPS_V1"
+      config {
+        src_ip_ranges = ["*"]
+      }
+    }
+  }
+
+  # 渡されたルールのリストを展開
+  dynamic "rule" {
+    for_each = { for r in var.rules : tostring(r.priority) => r }
+    content {
+      action      = rule.value.action
+      priority    = rule.value.priority
+      description = rule.value.description
+
+      match {
+        # src_ip_ranges が指定されている場合（IPルール）
+        versioned_expr = rule.value.src_ip_ranges != null ? "SRC_IPS_V1" : null
+        
+        dynamic "config" {
+          for_each = rule.value.src_ip_ranges != null ? [1] : []
+          content {
+            src_ip_ranges = rule.value.src_ip_ranges
+          }
+        }
+
+        # expression が指定されている場合（WAFルール等）
+        dynamic "expr" {
+          for_each = rule.value.expression != null ? [1] : []
+          content {
+            expression = rule.value.expression
+          }
+        }
+      }
+    }
+  }
+}
+モジュール化・YAML管理によるメリットと運用上のポイント
+インフラ担当者と業務担当者の役割分離
+Terraformの複雑なロジック（main.tfやモジュール）には一切触れず、**「取引先のIP追加・削除は parameters.yaml を更新するだけ」**という運用が可能になります。これにより、GitのPull Request等で差分（どの拠点のどのIPが増えたか）が非常にレビューしやすくなります。
+モジュールの再利用性向上
+「V000の読み替え」「10個のチャンク分割」といった今回の要件に特化したロジックは呼び出し元（Rootモジュール）の locals に閉じ込めています。そのため、modules/cloud_armor 自体は純粋に「ルールを受け取って作るだけ」の汎用モジュールとなり、他のシステムやプロジェクトでも流用可能です。
+YAMLの入力ミス対策（バリデーション）
+YAMLはCSVと違い、インデントやデータ型（文字列としてのIPアドレスなど）のミスが発生する可能性があります。もしCI/CD（GitHub ActionsやGitLab CIなど）を組んでいる場合は、terraform plan の前に yamllint などの静的解析ツールを挟むと、ヒューマンエラーによる適用失敗を未然に防ぐことができます。
+この構成であれば、現在お客様が構築されているIaC環境にシームレスに組み込みつつ、安全かつ自動化されたIP管理が実現できるはずです。ご不明な点があればお知らせください。
+
+1. ファイル構成イメージ
+データソース（YAMLとCSV）を並べて配置し、main.tfで統合します。モジュール側（modules/cloud_armor/）のコードは、前回ご提示した内容から一切変更する必要はありません。
+
+.
+├── parameters.yaml       # 【データ1】既存ルール（WAFや社内IP等）
+├── partner_ips.csv       # 【データ2】取引先IPリスト（ExcelからCSV出力）
+├── main.tf               # 【統合処理】YAMLとCSVを読み込み、計算してモジュールへ渡す
+└── modules/
+    └── cloud_armor/
+        ├── main.tf       # 【変更不要】汎用化されたCloud Armorモジュール
+        └── variables.tf
+2. データソースの定義
+① YAMLファイル（parameters.yaml）
+ここでは「固定のルール」だけを定義します。
+
+existing_rules:
+  - action: "deny(403)"
+    priority: 1000
+    description: "WAF: SQLインジェクション防御"
+    expression: "evaluatePreconfiguredExpr('sqli-stable')"
+  - action: "allow"
+    priority: 2000
+    description: "運用保守用の社内IP"
+    src_ip_ranges: 
+      - "203.0.113.0/24"
+② CSVファイル（partner_ips.csv）
+Excelのパラメータシートから出力された取引先台帳です。
+
+branch_id,ip_address
+V000,192.168.0.1/32
+V000,192.168.0.2/32
+V999,10.0.0.1/32
+V999,10.0.0.2/32
+3. Terraformでの統合ロジック（main.tf）
+呼び出し元の main.tf で、YAMLの読み込み処理とCSVの読み込み・計算処理を並行して行い、最後に concat() 関数で1つのリストに統合します。
+
+locals {
+  # ==========================================
+  # 1. YAMLから既存ルールを読み込み・整形
+  # ==========================================
+  yaml_config = yamldecode(file("${path.module}/parameters.yaml"))
+
+  existing_rules = [
+    for r in local.yaml_config.existing_rules : {
+      action        = r.action
+      priority      = r.priority
+      description   = r.description
+      # YAMLにキーが存在しない場合はnullを入れる
+      expression    = try(r.expression, null)
+      src_ip_ranges = try(r.src_ip_ranges, null)
+    }
+  ]
+
+  # ==========================================
+  # 2. CSVから取引先IPを読み込み・計算
+  # ==========================================
+  csv_data = csvdecode(file("${path.module}/partner_ips.csv"))
+
+  # 拠点IDごとにIPアドレスをリスト化 { "V000" = ["IP", "IP"], "V999" = ["IP"] }
+  branch_ips = {
+    for row in local.csv_data : row.branch_id => row.ip_address...
+  }
+
+  # ルールの動的生成（10個分割とプライオリティ計算）
+  partner_rules = flatten([
+    for branch_id, ips in local.branch_ips : [
+      for i, chunk in chunklist(ips, 10) : {
+        action        = "allow"
+        description   = "Allow ${branch_id} - part ${i + 1}"
+        
+        # V999 -> 999 の数値抽出
+        branch_num    = tonumber(substr(branch_id, 1, 3))
+        # プライオリティ計算: 2000000000 + ((9000 + 拠点番号) * 10000) + チャンク番号
+        priority      = 2000000000 + ((9000 + branch_num) * 10000) + i
+        
+        expression    = null
+        src_ip_ranges = chunk
+      }
+    ]
+  ])
+
+  # ==========================================
+  # 3. ルールを統合してモジュールへ渡す
+  # ==========================================
+  # YAML由来のルールとCSV由来のルールを1つのリストにガッチャンコする
+  all_rules = concat(local.existing_rules, local.partner_rules)
+}
+
+# モジュールの呼び出し
+module "cloud_armor" {
+  source = "./modules/cloud_armor"
+
+  policy_name = "partner-api-policy"
+  rules       = local.all_rules
+}
+このアーキテクチャの運用上の最大のメリット
+この「YAMLとCSVの混在アプローチ」を採用することで、インフラチームと業務・運用チームの責任分界点を明確に分けることができます。
+
+インフラチーム（SRE等）のタスク:
+WAFのチューニングや社内IPの変更が発生したときのみ、parameters.yaml を修正する。
+Terraformのコード品質を担保する。
+業務チーム（API提供担当など）のタスク:
+新しい取引先が増えたり、取引先のIPが変更されたら、今まで通り「Excelのパラメータシート」を更新し、そこから partner_ips.csv を出力してGitにコミット（Pull Request）するだけ。
+TerraformのコードやYAMLのインデントを壊してしまうリスクがゼロになる。
+お客様の「Excel台帳を使いたい」という業務要件と、「IaCで堅牢に管理したい」というシステム要件を見事に両立できる素晴らしい設計だと思います。この構成でぜひ実装を進めてみてはいかがでしょうか。

@@ -1,3 +1,29 @@
+"""
+Google Cloud SDK リリースノート取得・分類ツール
+
+【概要】
+Google Cloud SDK の公式リリースノート（https://docs.cloud.google.com/sdk/docs/release-notes）から
+データを取得し、構造化された CSV 形式で出力します。
+
+【仕様】
+1. 抽出対象: バージョン 408.0.0 以降の全リリース項目。
+2. 出力形式: CSV (release_notes_v3.csv)
+   - 列構成: サービス名, バージョン, 分類, 内容
+3. 分類ロジック:
+   - 先頭の動詞（Added, Fixed, Updated, Promoted 等）を最優先で判別。
+   - 分類カテゴリ:
+     - 破壊的変更 (BREAKING CHANGES セクション)
+     - GA昇格 (Promoted to GA)
+     - ベータ/プレビュー昇格 (Promoted to Beta/Preview)
+     - 新機能/追加 (Added, New, Support 等)
+     - 修正 (Fixed, Resolved, Bug 等)
+     - 非推奨/削除 (Deprecated, Removed 等)
+     - 変更/改善 (Updated, Modified, Set 等)
+     - その他
+4. 特徴:
+   - BeautifulSoup を使用し、タグ間のスペースを維持して正確にテキストを抽出。
+   - 正規表現による単語境界判定（\b）で誤検知を防止。
+"""
 import requests
 from bs4 import BeautifulSoup
 import csv

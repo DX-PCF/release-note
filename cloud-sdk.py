@@ -1,144 +1,110 @@
-"""
-Google Cloud SDK リリースノート取得・分類ツール
-
-【概要】
-Google Cloud SDK の公式リリースノート（https://docs.cloud.google.com/sdk/docs/release-notes）から
-データを取得し、構造化された CSV 形式で出力します。
-
-【仕様】
-1. 抽出対象: バージョン 408.0.0 以降の全リリース項目。
-2. 出力形式: CSV (release_notes_v3.csv)
-   - 列構成: サービス名, バージョン, 分類, 内容
-3. 分類ロジック:
-   - 先頭の動詞（Added, Fixed, Updated, Promoted 等）を最優先で判別。
-   - 分類カテゴリ:
-     - 破壊的変更 (BREAKING CHANGES セクション)
-     - GA昇格 (Promoted to GA)
-     - ベータ/プレビュー昇格 (Promoted to Beta/Preview)
-     - 新機能/追加 (Added, New, Support 等)
-     - 修正 (Fixed, Resolved, Bug 等)
-     - 非推奨/削除 (Deprecated, Removed 等)
-     - 変更/改善 (Updated, Modified, Set 等)
-     - その他
-4. 特徴:
-   - BeautifulSoup を使用し、タグ間のスペースを維持して正確にテキストを抽出。
-   - 正規表現による単語境界判定（\b）で誤検知を防止。
-"""
-import requests
-from bs4 import BeautifulSoup
-import csv
+import pandas as pd
+import os
 import re
 
-def version_to_tuple(version_str):
-    """バージョン文字列を比較可能なタプルに変換 (例: '565.0.0' -> (565, 0, 0))"""
-    match = re.search(r'(\d+)\.(\d+)\.(\d+)', version_str)
-    if match:
-        return tuple(map(int, match.groups()))
-    return (0, 0, 0)
+# Google Cloud CLI リリースノートと設計書(a.txt)を照合し、
+# ファイルごとにヒット件数をカウントするスクリプト
 
-def classify_content(service_name, content):
-    """内容から分類を判定する（先頭動詞重視版）"""
-    content_clean = content.strip()
-    if not content_clean:
-        return "その他"
-    
-    # 最初の単語を取得
-    first_word = content_clean.split()[0].rstrip('.,:;()').lower()
-    content_lower = content_clean.lower()
-    service_lower = service_name.lower()
-    
-    # 1. 破壊的変更（カテゴリ名最優先）
-    if "breaking changes" in service_lower:
-        return "破壊的変更"
-    
-    # 2. 先頭動詞による判定（最優先のヒューリスティック）
-    if first_word in ["fixed", "resolved", "fix", "rebuilt", "rebuilding", "resolved"]:
-        return "修正"
-    
-    if first_word in ["promoted", "promote", "promoting", "promotes"]:
-        if "ga" in content_lower or "general availability" in content_lower:
-            return "GA昇格"
-        if any(kw in content_lower for kw in ["beta", "preview", "alpha"]):
-            return "ベータ/プレビュー昇格"
-        return "GA昇格"  # デフォルトはGA昇格として扱う
-        
-    if first_word in ["added", "add", "new", "introduced", "introduces", "available", "support", "supports", "newly"]:
-        return "新機能/追加"
-        
-    if first_word in ["updated", "update", "updates", "improved", "modified", "changed", "renamed", "set", "default", "migrated", "upgraded", "made"]:
-        return "変更/改善"
-        
-    if first_word in ["deprecated", "removed", "deleted", "deprecation", "removal"]:
-        return "非推奨/削除"
+# Google Cloud CLI リリースノートと設計書(a.txt)を照合するスクリプト
 
-    # 3. 先頭動詞で判定できなかった場合のキーワード判定（フォールバック）
-    if "promoted" in content_lower and (" ga" in content_lower or "general availability" in content_lower):
-        return "GA昇格"
-    if "promoted" in content_lower and any(kw in content_lower for kw in ["beta", "preview", "alpha"]):
-        return "ベータ/プレビュー昇格"
-    if any(re.search(rf"\b{kw}\b", content_lower) for kw in ["added", "introduced", "available", "support"]):
-        return "新機能/追加"
-    if any(re.search(rf"\b{kw}\b", content_lower) for kw in ["fixed", "resolved", "bug"]):
-        return "修正"
-    if any(re.search(rf"\b{kw}\b", content_lower) for kw in ["deprecated", "removed", "deleted"]):
-        return "非推奨/削除"
-    if any(re.search(rf"\b{kw}\b", content_lower) for kw in ["updated", "improved", "modified", "changed", "renamed", "set"]):
-        return "変更/改善"
-    
-    return "その他"
+def extract_tokens_from_file(file_path):
+    """
+    ファイルからコマンドとフラグを抽出する関数
+    """
+    tokens = set()
+    if not os.path.exists(file_path):
+        return tokens
 
-def fetch_and_export():
-    url = "https://docs.cloud.google.com/sdk/docs/release-notes"
-    print(f"URLからデータを取得中: {url}")
-    
+    # 文字コードは UTF-8 を優先し、失敗した場合は Shift-JIS (CP932) で読み込む
     try:
-        response = requests.get(url)
-        response.raise_for_status()
-    except Exception as e:
-        print(f"データの取得に失敗しました: {e}")
+        with open(file_path, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+    except UnicodeDecodeError:
+        with open(file_path, 'r', encoding='cp932') as f:
+            lines = f.readlines()
+
+    for line in lines:
+        # 1. gcloudコマンド部分の抽出
+        # "gcloud" ＋ スペース ＋ 英小文字/数字/ハイフンの繰り返しを検索
+        match = re.search(r'gcloud\s+([a-z0-9\s-]+)', line, re.IGNORECASE)
+        if match:
+            raw_cmd_body = match.group(1).strip()
+            # 単語ごとに分解して、プレースホルダーや日本語が出てくるまでをコマンドとする
+            parts = re.split(r'\s+', raw_cmd_body)
+            clean_parts = ["gcloud"]
+            for p in parts:
+                # フラグ（--）が出てきたらコマンド（位置引数）部分は終了
+                if p.startswith('--'):
+                    break
+                # 英小文字、数字、ハイフン以外の文字（日本語や記号）が含まれたら終了
+                if not re.match(r'^[a-z0-9-]+$', p, re.IGNORECASE):
+                    break
+                clean_parts.append(p)
+            
+            # gcloud単体ではなく、サブコマンド等が含まれる場合のみ追加
+            if len(clean_parts) > 1:
+                tokens.add(" ".join(clean_parts))
+
+        # 2. オプションフラグ（--xxx）の抽出
+        # -- で始まり、その後に英小文字/数字/ハイフンが続くものをすべて拾う
+        flags = re.findall(r'--[a-z0-9-]+', line, re.IGNORECASE)
+        for f in flags:
+            tokens.add(f)
+            
+    return tokens
+
+def main():
+    # 入出力ファイル名の設定
+    target_csv = "release_notes_v3 small.csv"
+    input_command_files = ["a.txt"]
+    output_csv = "release_notes_impacted.csv"
+    
+    # リリースノート本文が含まれるカラム名
+    content_col = '内容'
+    
+    # 処理対象CSVの読み込み
+    try:
+        # Excel対応のため UTF-8 BOM付き (utf-8-sig) を優先
+        df = pd.read_csv(target_csv, encoding='utf-8-sig')
+    except UnicodeDecodeError:
+        # 失敗した場合は CP932 (Shift-JIS) で読み込む
+        df = pd.read_csv(target_csv, encoding='cp932')
+
+    if content_col not in df.columns:
+        print(f"Error: {content_col} not found")
         return
 
-    soup = BeautifulSoup(response.text, 'html.parser')
-    
-    min_version = (408, 0, 0)
-    results = []
-    
-    h2_tags = soup.find_all('h2')
-    
-    for h2 in h2_tags:
-        version_text = h2.get_text(strip=True)
-        version_num_match = re.search(r'(\d+\.\d+\.\d+)', version_text)
-        if not version_num_match: continue
-            
-        version_str = version_num_match.group(1)
-        if version_to_tuple(version_str) < min_version: continue
-            
-        current_service = "General"
-        node = h2.find_next_sibling()
+    # 各コマンド定義ファイル（a.txtなど）をループ処理
+    for cmd_file in input_command_files:
+        print(f"Processing: {cmd_file}")
         
-        while node and node.name != 'h2':
-            if node.name == 'h3':
-                current_service = node.get_text(strip=True)
-            elif node.name == 'ul':
-                for li in node.find_all('li', recursive=False):
-                    # separator=" " を指定してタグ間のテキストが結合されないようにする
-                    content = li.get_text(separator=" ", strip=True)
-                    # 連続する空白を1つにまとめる
-                    content = re.sub(r'\s+', ' ', content)
-                    
-                    classification = classify_content(current_service, content)
-                    results.append([current_service, version_str, classification, content])
-            node = node.find_next_sibling()
+        # ファイルから検索キーワード（コマンド/フラグ）を抽出
+        pure_tokens = extract_tokens_from_file(cmd_file)
+        
+        if not pure_tokens:
+            print(f"No tokens found in {cmd_file}")
+            df[cmd_file] = 0
+            continue
 
-    filename = 'release_notes_v3.csv'
-    try:
-        with open(filename, 'w', newline='', encoding='utf-8-sig') as f:
-            writer = csv.writer(f)
-            writer.writerow(['サービス名', 'バージョン', '分類', '内容'])
-            writer.writerows(results)
-        print(f"成功: {len(results)} 件のレコードを {filename} に出力しました（先頭動詞重視）。")
-    except Exception as e:
-        print(f"CSVの書き込みに失敗しました: {e}")
+        print(f"Tokens: {sorted(list(pure_tokens))}")
+
+        # 各行に対してヒット件数をカウントする
+        def count_matches(text):
+            if pd.isna(text): return 0
+            text_str = str(text)
+            count = 0
+            for token in pure_tokens:
+                # 正規表現でキーワードが含まれているか検索
+                if re.search(re.escape(token), text_str, re.IGNORECASE):
+                    count += 1
+            return count
+
+        # ファイル名を列名として追加し、カウント結果を格納
+        df[cmd_file] = df[content_col].apply(count_matches)
+
+    # 結果をBOM付きUTF-8で保存
+    df.to_csv(output_csv, index=False, encoding='utf-8-sig')
+    print(f"Saved: {output_csv}")
 
 if __name__ == "__main__":
-    fetch_and_export()
+    main()

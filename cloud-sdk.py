@@ -5,15 +5,14 @@ import re
 # Google Cloud CLI リリースノートと設計書(a.txt)を照合し、
 # ファイルごとにヒット件数をカウントするスクリプト
 
-# Google Cloud CLI リリースノートと設計書(a.txt)を照合するスクリプト
-
-def extract_tokens_from_file(file_path):
+def extract_token_groups_from_file(file_path):
     """
-    ファイルからコマンドとフラグを抽出する関数
+    ファイルからコマンドとフラグのグループを抽出する関数
+    戻り値: list of list (各サブリスト内の全要素がヒットした場合に1カウント)
     """
-    tokens = set()
+    token_groups = []
     if not os.path.exists(file_path):
-        return tokens
+        return token_groups
 
     # 文字コードは UTF-8 を優先し、失敗した場合は Shift-JIS (CP932) で読み込む
     try:
@@ -24,34 +23,47 @@ def extract_tokens_from_file(file_path):
             lines = f.readlines()
 
     for line in lines:
-        # 1. gcloudコマンド部分の抽出
-        # "gcloud" ＋ スペース ＋ 英小文字/数字/ハイフンの繰り返しを検索
-        match = re.search(r'gcloud\s+([a-z0-9\s-]+)', line, re.IGNORECASE)
-        if match:
-            raw_cmd_body = match.group(1).strip()
-            # 単語ごとに分解して、プレースホルダーや日本語が出てくるまでをコマンドとする
-            parts = re.split(r'\s+', raw_cmd_body)
-            clean_parts = ["gcloud"]
-            for p in parts:
-                # フラグ（--）が出てきたらコマンド（位置引数）部分は終了
-                if p.startswith('--'):
-                    break
-                # 英小文字、数字、ハイフン以外の文字（日本語や記号）が含まれたら終了
-                if not re.match(r'^[a-z0-9-]+$', p, re.IGNORECASE):
-                    break
-                clean_parts.append(p)
-            
-            # gcloud単体ではなく、サブコマンド等が含まれる場合のみ追加
-            if len(clean_parts) > 1:
-                tokens.add(" ".join(clean_parts))
+        line = line.strip()
+        if not line or line.startswith('#'):
+            continue
 
-        # 2. オプションフラグ（--xxx）の抽出
-        # -- で始まり、その後に英小文字/数字/ハイフンが続くものをすべて拾う
-        flags = re.findall(r'--[a-z0-9-]+', line, re.IGNORECASE)
+        current_cmd = None
+        # 1. コマンド部分の抽出 (gcloud, gsutil, bq)
+        cmd_match = re.search(r'\b(gcloud|gsutil|bq)\s+([a-z0-9\s-]+)', line, re.IGNORECASE)
+        if cmd_match:
+            base_cmd = cmd_match.group(1).lower()
+            raw_cmd_body = cmd_match.group(2).strip()
+            parts = re.split(r'\s+', raw_cmd_body)
+            clean_parts = [base_cmd]
+            for p in parts:
+                if p.startswith('-'): break
+                if not re.match(r'^[a-z0-9-]+$', p, re.IGNORECASE): break
+                clean_parts.append(p)
+            current_cmd = " ".join(clean_parts)
+            # コマンド単体でのヒットも登録
+            token_groups.append([current_cmd])
+
+        # 2. オプションフラグ（--xxx または -x）の抽出
+        flags = re.findall(r'(?:\s|^)(--[a-z0-9-]+|-[a-z0-9])', line, re.IGNORECASE)
         for f in flags:
-            tokens.add(f)
+            flag = f.strip()
+            if current_cmd:
+                # コマンドがある場合は、コマンドとセットで登録
+                token_groups.append([current_cmd, flag])
+            else:
+                # コマンドがない場合は、フラグ単体で登録
+                token_groups.append([flag])
             
-    return tokens
+    # 重複の削除
+    unique_groups = []
+    seen = set()
+    for g in token_groups:
+        t = tuple(sorted(g))
+        if t not in seen:
+            seen.add(t)
+            unique_groups.append(g)
+            
+    return unique_groups
 
 def main():
     # 入出力ファイル名の設定
@@ -78,24 +90,24 @@ def main():
     for cmd_file in input_command_files:
         print(f"Processing: {cmd_file}")
         
-        # ファイルから検索キーワード（コマンド/フラグ）を抽出
-        pure_tokens = extract_tokens_from_file(cmd_file)
+        # ファイルから検索パターンのグループを抽出
+        token_groups = extract_token_groups_from_file(cmd_file)
         
-        if not pure_tokens:
+        if not token_groups:
             print(f"No tokens found in {cmd_file}")
             df[cmd_file] = 0
             continue
 
-        print(f"Tokens: {sorted(list(pure_tokens))}")
+        print(f"Patterns: {token_groups}")
 
         # 各行に対してヒット件数をカウントする
         def count_matches(text):
             if pd.isna(text): return 0
             text_str = str(text)
             count = 0
-            for token in pure_tokens:
-                # 正規表現でキーワードが含まれているか検索
-                if re.search(re.escape(token), text_str, re.IGNORECASE):
+            for group in token_groups:
+                # グループ内のすべての要素がテキストに含まれているかチェック
+                if all(re.search(re.escape(token), text_str, re.IGNORECASE) for token in group):
                     count += 1
             return count
 

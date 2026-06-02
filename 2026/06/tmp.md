@@ -1,26 +1,3 @@
-Searched web: "google_scc_mute_config terraform 6.26.0"
-Searched web: ""google_scc_mute_config" site:registry.terraform.io/providers/hashicorp/google"
-Searched web: ""gcloud scc mute-configs""
-Searched web: ""gcloud scc muteconfigs create""
-Searched web: ""gcloud scc muteconfigs create" "organization" "folder" "project""
-Searched web: ""google_scc_mute_config" terraform "Arguments Reference""
-Searched web: ""google_scc_mute_config" terraform location"
-Searched web: "site:cloud.google.com/sdk/gcloud/reference/scc/muteconfigs/create"
-
-ご指定いただきました **gcloud CLI (version 565.0)** および **Terraform Google Provider (version 6.26.0)** の公式ドキュメントに基づき、Security Command Center (SCC) のミュート設定（`google_scc_mute_config` / `gcloud scc muteconfigs`）に関する**パラメータ対応シート（テンプレート）**を作成いたしました。
-
-実務でインフラ定義書や設計書にそのまま落とし込めるよう、入力パラメータだけでなく、設計上の重要ポイントやデフォルト値の相違、出力（Computed）属性まで網羅した高精度なテンプレートとして構成しています。
-
----
-
-# Security Command Center ミュート設定 パラメータ対応シート
-
-## 1. 前提バージョン
-*   **Google Cloud CLI (gcloud):** `version 565.0`
-*   **Terraform Google Provider:** `version 6.26.0`
-
----
-
 ## 2. パラメータ対応表
 
 同じ設定項目を同じ行に配置し、それぞれの指定方法、説明、およびデフォルト値をマッピングしています。

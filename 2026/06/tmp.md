@@ -85,14 +85,6 @@ resource "google_scc_mute_config" "low_severity_mute" {
 
 ---
 
-このテンプレートをそのままExcel、Markdown設計書、Confluence、またはスプレッドシートにコピーしてご活用ください。
-=========================================
-Terraformコードのモジュール化を前提とし、パラメータ情報を **YAMLファイル** で一元管理・分離するエンタープライズ向けの構成（設計・コードテンプレート）を作成しました。
-
-この構成を採用することで、インフラエンジニア以外のメンバーでもYAMLファイルを編集するだけで安全にミュート設定を追加・変更できるようになります。
-
----
-
 ## 1. ディレクトリ構成
 推奨されるファイル配置です。再利用可能な子モジュール（`modules/scc_mute_config`）と、環境ごとの設定を行うルートモジュールに分離しています。
 
@@ -274,9 +266,7 @@ Searched web: "site:github.com/hashicorp/terraform-provider-google "google_scc_v
 Searched web: ""google_scc_v2_project_mute_config" site:registry.terraform.io/providers/hashicorp/google/latest/docs/resources/scc_v2_project_mute_config"
 Searched web: "site:registry.terraform.io/providers/hashicorp/google "google_scc_v2_project_mute_config" "parent""
 
-はい、**`google_scc_mute_config`（v1/レガシーAPI準拠）**から、最新の**`google_scc_v2_project_mute_config`（v2 API準拠）**に変更する場合、**いくつかの重要な仕様変更とそれに伴うコードの修正が発生します。**
 
-以下に、具体的な変更点と、先ほど作成したYAMLおよびモジュール構成に対する修正内容を整理しました。
 
 ---
 
@@ -356,14 +346,6 @@ variable "parent" {
 }
 ```
 
----
 
-## 3. まとめ：変更が発生する理由と設計上のメリット
-
-> [!IMPORTANT]
-> **移行の最大のポイント**
-> `google_scc_v2_project_mute_config` に切り替えることで、これまでの汎用的なモジュールから **「プロジェクトレベル専用のミュート設定モジュール」** に役割が明確化（特化）されます。
-
-もしプロジェクトだけでなく、**組織（Organization）レベル**や**フォルダ（Folder）レベル**でのミュート設定もYAMLで一元管理したい場合は、ルートモジュール（`main.tf`）側で、YAMLから読み込んだデータの `parent` プレフィックス（`projects/`、`organizations/`、`folders/`）に応じて呼び出すモジュールを分岐させる（または、YAMLの配列をスコープごとに分ける）設計へのアップデートを設計を追加設計することで、美しく拡張が対応が最も美しい設計にアップデートすると、さらに美しいアーキテクチャになります。
 
 ====

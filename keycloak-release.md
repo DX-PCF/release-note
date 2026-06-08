@@ -1,105 +1,36 @@
-Keycloak 26.xのリリースにおける新機能と改善点の中から、**非機能要件**に関する内容を以下にまとめます。非機能要件は、システムがどのように機能するか（パフォーマンス、セキュリティ、信頼性など）を記述するものです。
-
-### 1. セキュリティ
-
-*   **認証と認可の強化**
-    *   **リセット資格情報後の強制ログインのデフォルト動作変更**: フェデレーションユーザーの場合、資格情報リセットフロー後に強制的に再ログインさせる動作がデフォルトになりました。これにより、Keycloakと密接に統合されていないユーザーフェデレーションプロバイダーによって管理されるユーザーのセキュリティが向上します。
-    *   **JWTクライアント認証のOIDC仕様への準拠**: OpenID Connect Core Specificationの規則に沿って、JWTクライアントアサーションのオーディエンス検証が強化され、クライアント認証に使用されるJWTトークンには単一のオーディエンスが強制されます。
-    *   **JGroups通信のゼロコンフィギュレーションセキュア化**: クラスター内のノード間の分散キャッシュ通信が、TCPベースのトランスポートスタックすべてでTLS暗号化され、自動生成された一時的なキーと証明書で保護されます。これにより、**セキュアバイデフォルト**のセットアップが強化され、設定手順が最小限に抑えられます。
-    *   **OperatorによるNetworkPolicyの自動作成**: Keycloak Operatorがデフォルトで、Keycloakの分散キャッシュに使用される内部ポートへのトラフィックを制限するNetworkPolicyを作成するようになりました。これも**セキュアバイデフォルト**のセットアップを強化し、設定手順を最小限に抑えます。
-    *   **管理インターフェースの信頼およびキーマテリアルのリロードオプション**: 管理インターフェースのHTTPS関連のキー、トラストストア、証明書ファイルのリロード期間を定義する`https-management-certificates-reload-period`オプションが追加されました。
-    *   **JGroups暗号化のデフォルト有効化とドキュメント化**: JGroups暗号化がデフォルトで有効になり、デフォルトのキー長（2048ビット）とキータイプ（RSA）がドキュメント化されました。
-    *   **クライアント認証のキー生成とシークレットの改善**: クライアント認証のキー生成が常にRSA 2048ビットで10年間の有効期間であった問題や、クライアントシークレット生成のエントロピーが低い問題が改善されました。
-    *   **アクセス・トークンIDのエントロピー改善**: アクセス・トークンIDのエントロピーが128ビット未満であった問題が改善されました。
-*   **脆弱性修正 (CVEs)**
-    *   **CVE-2025-0736**: JGroupsチャネル作成中のエラーがセキュアな情報を漏洩する可能性があった問題が修正されました。
-    *   **CVE-2024-47072**: XStreamが操作されたバイナリ入力ストリームによるスタックオーバーフローにより、サービス拒否攻撃に対して脆弱であった問題が修正されました。
-    *   **CVE-2025-3910**: 二要素認証のバイパス脆弱性が修正されました。
-    *   **CVE-2025-3501**: Keycloakのホスト名検証に関する脆弱性が修正されました。
-*   **その他のセキュリティ修正**
-    *   ログインフォームでシステム内に存在するメールアドレスやユーザー名を特定できる可能性があった問題が修正されました。
-    *   `X-XSS-Protection`ヘッダーの削除 (セキュリティのベストプラクティス)。
-    *   Recovery Codesの設定における不適切な入力検証、Recovery Codes生成タイムスタンプの変更可能性、Recovery Code検証の競合状態の可能性が修正されました。
-    *   Authorization Code Flowが、RealmレベルへのCredential Definition移行後にスコープ検証に失敗する問題が修正されました。
-    *   ブルートフォース検出の特定フィールドで負の値が処理される問題が修正されました。
-
-### 2. パフォーマンス
-
-*   **キャッシュとメモリ管理の最適化**
-    *   **CRLsの新しいキャッシュ**: X.509認証器で証明書を検証するためにロードされるCRL（Certificate Revocation Lists）が、`crl`という新しいInfinispanキャッシュ内にキャッシュされるようになりました。これにより、検証パフォーマンスが向上し、ソースごとに1つのCRLのみが維持されるため、メモリ消費が削減されます。
-    *   **Infinispanリストセッションの高速化**: 管理UIでのInfinispanセッションリストの取得が、より積極的に古いクライアントセッションを削除することで高速化されました。
-    *   **Infinispanセッションの遅延マッピング**: 管理UIでInfinispanからのセッションが遅延マッピングされるようになり、パフォーマンスとリソース使用量が向上しました。
-*   **インポート、エクスポート、移行の改善**
-    *   **性能向上**: 大量のレルムを含むインポート、エクスポート、移行の実行時間が改善されました。追加のレルムごとに累積的なパフォーマンス低下が発生しなくなりました。
-*   **ロギングの非同期化**:
-    *   **高スループット・低レイテンシー**: すべてのログハンドラーで非同期ロギング機能がサポートされるようになりました。これにより、高スループットと低レイテンシーが要求されるデプロイメントが効率化されます。
-*   **その他のパフォーマンス改善**
-    *   LDAPフェデレーションが各LDAPリクエストに対して新しいスレッド/接続を開き続ける問題が修正されました。
-    *   JDBC-PINGにおけるJGroupsの「per-destination」バンドラーへの切り替え。
-
-### 3. 信頼性 (Reliability)
-
-*   **ユーザーアカウントの回復**
-    *   **2FAリカバリーコード**: 2FA認証（例：OTPジェネレーター）を使用しているユーザーが、OTPジェネレーターを紛失した場合にアカウントからロックアウトされるのを防ぐためのリカバリーコード機能が、プレビューからサポート機能に昇格しました。これにより、ユーザーはアカウントのロックアウトから回復できます。
-*   **アップグレードの安定性**
-    *   **パッチリリース向けローリングアップデート (プレビュー)**: Keycloak Operatorが、同じメジャー.マイナーリリースストリームからの将来のパッチリリースを含む新しいイメージへのローリングアップデートをサポートするように拡張されました。これにより、サービス停止時間がさらに最小限に抑えられます。
-    *   **Liquibaseチェックサム不一致の修正**: Keycloak ≤ 22.0.4から26.2.xに直接アップグレードする際のLiquibaseチェックサム不一致の問題が修正されました。
-    *   **クラスタリング環境での移行モデルの重複エントリ修正**: 2つ以上のノードを持つクラスターでのRecreate Upgrade中に発生するMigrationModelの重複エントリの問題が修正されました。
-*   **JGroupsとInfinispanの安定性**
-    *   **JGroups証明書ローテーション**: JGroupsの証明書ローテーション機能が追加されました。
-    *   **Infinispanのアップグレード**: Infinispan 15.0.14 および 15.0.15 へのアップグレード。
-    *   **JDBC-PING2のクラスター形成問題の修正**: JDBC_PING2でクラスターが正しく形成されない問題が修正されました。
-    *   **JGroupsエラーの修正**: 厳格なFIPSモードでIstioとともにコンテナ化されたKeycloakを実行する際のJGroupsエラーが修正されました。
-    *   **InfinispanのJVMスレッド数増加問題の修正**: 26.0.8から26.1.4への移行後にJVMスレッド数が増加する問題が修正されました。
-    *   **セッションの永続性**: `persistent-user-sessions`機能が無効な場合、`num_owners=2`をデフォルトとする設定が追加されました。
-    *   **エラー処理の改善**: transport mTLSキーストアまたはトラストストアが存在しない場合に例外をスローするようになりました。
-*   **データ整合性**
-    *   **重複キー違反の修正**: `constraint_offl_cl_ses_pk3`の重複キー違反が修正されました。
-*   **その他の安定性改善**
-    *   LDAPグループマッパーが設定されたフィルタをスキップし、`memberOf`戦略で全てのグループをインポートする問題が修正されました。
-    *   realmのPOST APIが、競合時に409の代わりに400を返す問題が修正されました。
-
-### 4. 運用管理性 (Operability) & 監視 (Observability)
-
-*   **ログとメトリクスの可視性**
-    *   **Grafanaダッシュボードのガイド**: サービスレベル指標やトラブルシューティング、キャパシティプランニングに関連するメトリクスを表示するGrafanaダッシュボードのガイドが追加されました。
-    *   **ECSフォーマットのログサポート**: すべてのログハンドラーがECS（Elastic Common Schema）JSONフォーマットをサポートするようになり、Keycloakの可観測性と集中ロギングが向上しました。
-    *   **JBossロギングリスナーへの詳細ログ出力**: jboss-loggingリスナーに詳細なログや表現を出力する機能が追加されました。
-    *   **Syslog非同期プロパティのサポート**: Syslogの非同期プロパティがサポートされるようになりました。
-    *   **低速なデータベース操作のログ記録**: 低速なデータベース操作をログに記録する機能が追加され、トラブルシューティングに役立ちます。
-    *   **CPU情報表示**: Admin ConsoleのServerInfoビューでCPU情報が表示されるようになりました。
-*   **構成とデプロイメント**
-    *   **Operatorによるローリングアップデート**: 最適化されたイメージまたはカスタマイズされたイメージを使用している場合、Keycloak Operatorが、新旧のイメージが同じバージョンのKeycloakを含んでいれば、ローリングアップデートを実行できるようになりました。
-    *   **OperatorによるNetworkPolicyの作成**: Keycloak Operatorがデフォルトで、Keycloakの分散キャッシュに使用される内部ポートへのトラフィックを制限するNetworkPolicyを作成するようになりました。
-    *   **OperatorのConfigurable probes**: Operatorのプロ―ブが設定可能になりました。
-    *   **KubernetesでのServiceアノテーションとラベルのパラメータ化**: Keycloak OperatorがServiceのアノテーションとラベルをパラメータ化できるようになりました。
-    *   **Kubernetesでの`jdbc-ping`への変更**: KubernetesにおけるInfinispanのディスカバリが`jdbc-ping`を使用するように変更されました。
-    *   **Operatorの`Auto`更新戦略のドキュメント化**: `podTemplate`と使用する際のOperatorの`Auto`更新戦略がドキュメント化されました。
-    *   **`podman`使用の明確化**: `podman`の使用時期を明確にするドキュメントが追加されました。
-    *   **低速なSQLとSQLコメントプレフィックスの設定可能化**: 低速なSQLとSQLコメントプレフィックスが設定可能になりました。
-*   **管理UIの改善**
-    *   **Admin Consoleでの追加クエリパラメータ**: Admin Events APIが、`Epoc`タイムスタンプによるイベントフィルタリングと、`asc`または`desc`の順序を制御する`direction`クエリパラメータをサポートするようになりました。また、返されるイベント表現に`id`が含まれるようになりました。
-
-### 5. ユーザビリティ (Usability) & ユーザーエクスペリエンス (UX)
-
-*   **WebAuthn/Passkeysの簡素化**
-    *   **WebAuthn/Passkeys登録の簡素化**: アプリケーションによって開始されるWebAuthn登録アクション（`webauthn-register`および`webauthn-register-passwordless`）が、`skip_if_exists`パラメータをサポートするようになりました。これにより、ユーザーがすでにそのタイプのクレデンシャルを設定している場合にアクションをスキップできるようになり、利便性が向上します。
-    *   **デフォルトのユーザー名フォームへのPasskeys統合**: デフォルトの認証フォームにPasskeysが統合され、Passkeysを有効にするスイッチが追加されました。
-*   **アカウント連携の簡素化**:
-    *   **IDプロバイダーへのアカウント連携の簡素化**: クライアントが開始するIDプロバイダーへのユーザーアカウント連携が、Application-Initiated Action (AIA) 実装に基づいて簡素化されました。
-*   **翻訳の改善**
-    *   オランダ語、イタリア語、ルーマニア語、ロシア語、ポーランド語、キルギス語の翻訳が追加または改善されました。
-    *   翻訳されたメッセージリソースのHTMLサニタイザーが追加されました。
-*   **UIの改善**:
-    *   ブルートフォース設定の警告しきい値に関するツールチップが改善されました。
-    *   Admin UIでComboxesがリセット後に選択されたオプションを表示しない問題が修正されました。
-    *   Admin UIのユーザープロファイルフィールドに不要なプレースホルダーテキストが表示される問題が修正されました。
-    *   Admin UIの「OTP Type」を切り替えても「Save」ボタンが有効にならない問題が修正されました。
-    *   Admin ConsoleからKeycloakロゴが欠落している問題が修正されました。
-
-### 6. 互換性
-
-*   **IPv6サポート**: IPv6のみの環境がサポートされるようになりました。
-*   **Aurora PostgreSQLのアップグレード**: サポートされているAurora PostgreSQLリリースへのアップグレード。
-
-これらの非機能要件に関する変更は、Keycloakの全体的な品質、セキュリティ、運用効率、およびユーザーエクスペリエンスを向上させることを目的としています。
+区分,対象リソース/データソース,変更タイプ,変更概要,詳細 & 対応アクション
+プロバイダ,全般 / プロバイダ,バリデーション強化,リソースのインポート形式に関するバリデーションが強化されました。,プロバイダ全体で、不完全な形式のインポート入力に対して誤って正常と判定してしまう不具合が修正されました。今後、'terraform import' に指定するすべての GCP リソース ID は、ドキュメントに指定されたインポート形式に正確に一致する必要があります。
+データソース,google_service_account_key,フィールド削除,project フィールドが削除されました。,project フィールドが削除されました。既存の設定ファイルから安全に削除してください。
+リソース,google_alloydb_cluster,動作変更（削除保護）,deletion_protection によるクラスター削除保護がデフォルトで有効になりました。,deletion_protection フィールドが追加され、デフォルト値が true に設定されました。これにより、terraform apply 実行中の意図しないクラスターの破壊や再作成が防止されます。バージョン 7.0.0 では、設定で明示的にオフにしていない限り、次回のリフレッシュ時に既存のクラスターの削除保護も自動的に true に設定されます。
+リソース,google_apigee_keystores_aliases_key_cert_file,フレームワーク移行 / フィールド変更,Plugin Framework への移行、および certs_info が参照専用（output-only）に変更されました。,SDKv2 からモダンな Plugin Framework に移行されました。以前は certs_info が任意指定可能でしたが、API で使用されていなかったため参照専用に修正されました。設定に記述されている場合は削除してください（API から取得された値は引き続き利用可能です）。
+リソース,google_artifact_registry_repository,デフォルト値削除,public_repository 各フィールドのデフォルト値が削除されました。,public_repository フィールドのデフォルト値が削除されました。以前のデフォルト動作に依存していた場合は、手動で設定ファイルに記述を追加する必要があります。
+リソース,google_beyondcorp_application,リソース削除,リソース本体および関連する IAM リソースが削除されました。,google_beyondcorp_application、関連する IAM リソース（_iam_binding、_iam_member、_iam_policy）、および _iam_policy データソースが削除されました。今後は google_beyondcorp_security_gateway_application を使用してください。
+リソース,google_bigquery_table,デフォルト値削除,view.use_legacy_sql のデフォルト値（True）が削除されました。,デフォルト値が削除されました。既存のビューには影響ありませんが、新規にビューを作成する際にこのフィールドを未指定にすると、API側のデフォルトに従って legacy SQL として作成されます。
+リソース,google_bigtable_table_iam_binding,フィールド削除（移行）,instance フィールドが削除され、instance_name に統合されました。,instance フィールドが削除され、instance_name に変更されました。v7.0.0+ にアップグレードする前に、v6.50.0+ にアップグレードした上で設定ファイルを instance_name に書き換えておくことが推奨されます。
+リソース,google_bigtable_table_iam_member,フィールド削除（移行）,instance フィールドが削除され、instance_name に統合されました。,同上（instance_name への移行が必要です）。
+リソース,google_bigtable_table_iam_policy,フィールド削除（移行）,instance フィールドが削除され、instance_name に統合されました。,同上（instance_name への移行が必要です）。
+リソース,google_billing_budget,フィールド動作変更,budget_filter.credit_types および budget_filter.subaccounts が Optional+Computed から Optional のみに変更されました。,API デフォルト値をエクスポートしないフィールドだったため、実質的な挙動への影響はなく、設定の修正も不要です。
+リソース,google_cloudfunctions2_function,フィールド制約変更 / 参照専用化,event_trigger.event_type が必須になり、service_config.service が参照専用に変更されました。,event_trigger 構成時に event_type の指定が必須となりました。また、service_config.service は参照専用（出力のみ）になったため、アップグレード後に設定から削除してください。
+リソース,google_cloud_run_v2_worker_pool,フィールド削除,template.containers.depends_on フィールドが削除されました。,アップグレード後、設定ファイルから template.containers.depends_on を削除してください。
+リソース,google_colab_runtime_template,フィールド削除,post_startup_script_config フィールドが削除されました。,アップグレード後、設定ファイルから post_startup_script_config を削除してください。
+リソース,google_compute_instance_template,デフォルト値削除,disk.type、disk.mode、disk.interface がプロバイダのデフォルト値を使用しなくなりました。,これらのディスクパラメータはプロバイダ側のデフォルトに依存せず、API がデフォルト値を設定するようになります。詳細は API ドキュメントを参照してください。
+リソース,google_compute_packet_mirroring,型変換（Set化）,subnetworks および instances フィールドが Set（セット）型に変換されました。,リストからセットに変更されました。ネストされたオブジェクトにアクセスする場合は、for_each を使用するか、設定内でローカルにリスト/配列に変換する必要があります。
+リソース,google_compute_region_instance_template,デフォルト値削除,disk.type、disk.mode、disk.interface がプロバイダのデフォルト値を使用しなくなりました。,同上。
+リソース,google_compute_router,型変換（Set化）,advertised_ip_ranges 各フィールドが Set（セット）型に変換されました。,ネストされたオブジェクト内の値にアクセスする際は、for_each を使用するか、設定内でローカルにリスト/配列に変換する必要があります。
+リソース,google_compute_subnetwork,フィールド削除,enable_flow_logs フィールドが削除されました。,enable_flow_logs が削除され、log_config フィールドに一本化されました。
+リソース,google_gke_hub_feature_membership,フィールド削除,configmanagement.binauthz フィールドが削除されました。,アップグレード後、設定ファイルから configmanagement.binauthz を削除してください。
+リソース,google_gke_hub_membership,フィールド削除,description フィールドが削除されました。,アップグレード後、設定ファイルから description を削除してください。
+リソース,google_memorystore_instance,フィールド削除,allow_fewer_zones_deployment フィールドが削除されました。,ユーザーが設定不可能なフィールドだったため削除されました。
+リソース,google_network_services_lb_traffic_extension,フィールド制約変更,load_balancing_scheme フィールドが必須（required）になりました。,このリソースが機能するために元々必要な項目であったため、既存の設定への影響はありません。
+リソース,google_notebooks_location,リソース削除,リソースが完全に削除されました。,動作していなかったリソースであるため、設定から安全に削除できます。
+リソース,google_project_service,デフォルト値削除,disable_on_destroy のデフォルト値（true）が削除されました。,デフォルトで true になっていたことで、単一リソースの削除時にプロジェクト全体のAPIが無効化されるというリスクを回避するための変更です。今後はリソースを削除しても状態（State）から除外されるだけで、API自体は有効なまま残ります。以前と同じ挙動（リソース削除時にAPIも無効化する）を望む場合は、明示的に disable_on_destroy = true と指定してください。
+リソース,google_redis_cluster,フィールド削除,allow_fewer_zones_deployment フィールドが削除されました。,ユーザー設定不可能であったため削除されました。
+リソース,google_sql_user,フィールド制約,password_wo と password_wo_version は同時に指定する必要があります。,書込専用（write-only）フィールドの挙動標準化のための変更です。更新忘れを防ぐため、必ず両方のフィールドをセットで記述する必要があります。
+リソース,google_secure_source_manager_instance,動作変更（削除保護）,deletion_policy のデフォルト値が PREVENT に変更されました。,意図しない削除を防ぐため、デフォルト値が PREVENT（防止）に変更されました。アップグレード後のリフレッシュ時に、既存のリソースも設定で明示していない限り PREVENT が適用されます。
+リソース,google_secure_source_manager_repository,動作変更（削除保護）,deletion_policy のデフォルト値が PREVENT に変更されました。,同上。
+リソース,google_storage_transfer_job,バリデーション強化,一部パスフィールドの先頭にスラッシュ（/）を使用することが禁止されました。,transfer_spec.gcs_data_sink.path、transfer_spec.gcs_data_source.path、replication_spec.gcs_data_source.path、および replication_spec.gcs_data_sink.path は先頭に / 文字を含めることができなくなりました。
+リソース,google_storage_bucket,型変換,retention_period フィールドのデータ型が string（文字列）に変更されました。,"より大きな保持期間値を処理できるように型が変更されました。Terraformの型自動変換機能によりほとんどの構成でそのままでも動作しますが、明示的にダブルクォーテーションで囲んで設定（例: retention_period = ""10""）することが推奨されます。"
+リソース,google_storage_notification,プラグインフレームワーク移行 & 形式厳格化,Plugin Framework への移行、および topic フィールドのフォーマット制限が適用されました。,SDKv2 から Plugin Framework に移行されました。topic に指定するフォーマットは projects/{{project}}/topics/{{topic}} 形式のみ許可され、従来の完全修飾 API フォーマット（//pubsub.googleapis.com/...）はバリデーションエラーになります。アップグレード時に State の自動移行は行われますが、設定ファイルの記述を手動で更新する必要があります。
+リソース,google_tpu_node,リソース削除,google_tpu_node リソースが削除されました。,TPU VM アーキテクチャへの移行に伴い削除されました。今後は google_tpu_v2_vm を使用してください。移行の詳細は Google Cloud の公式ガイドを参照してください。
+リソース,google_vertex_ai_endpoint,フィールド削除,GA（正式リリース）プロバイダから enable_secure_private_service_connect が削除されました。,GA版 API で本機能が提供されていないため削除されました（ベータ版プロバイダでは引き続き利用可能）。
+リソース,google_vertex_ai_index,フィールド制約変更,metadata および metadata.config が必須（required）に変更されました。,リソース動作に不可欠なフィールドのため明確に必須化されました。既存の正常な設定に変更は不要です。

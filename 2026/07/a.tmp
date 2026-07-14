@@ -7439,8 +7439,231 @@ storage.googleapis.com/Bucket
 Amazon S3バケット
 Azure Blob Storage コンテナ
 修復：
+Google Cloudの構築・設計を得意とするエンジニアとして、Security Command Center (SCC) のFindings（検出事項）におけるMute（消音）管理に特化した「環境設計書（案）」を作成しました。
 
-BigQueryデータの場合は、テーブルまたはデータセットに対してCMEKを使用します。
-Cloud SQLデータについては、CMEKのCloud SQL for MySQLまたはCloud SQL for PostgreSQLのドキュメントを参照してください。
-クラウドストレージのデータについては、 バケットに対してCMEKを使用してください。
-コンプライアンス基準：マッピングされていません
+これまでのディスカッションで整理した「組織レベルのMute制約」「プロジェクト個別でのMute設定」「親・子テーブルによる管理簿運用」の設計思想をすべて盛り込み、実際のプロジェクトにそのまま適用できるドキュメント構成にしています。
+
+---
+
+# Security Command Center Findings ミュート管理 環境設計書（案）
+
+## 1. 目的と設計方針
+
+本ドキュメントは、複数プロジェクトにまたがるGoogle Cloud環境において、Security Command Center（以下、SCC）が検出するセキュリティアラート（Findings）を効率的に管理し、不要なアラートを安全にミュート（消音）するための環境設計について定義する。
+
+### 1.1 設計方針
+
+* **最小権限の原則 (Least Privilege):** 過剰な権限（特にプロジェクトレベルでの `roles/iam.serviceAccountUser` 等）を排除し、リソースレベルでの権限付与を徹底する。
+* **中央集権的なポリシー管理（親・子管理）:** 設定ミス（Misconfiguration）の対応方針やMute判断はプロジェクト横断の「共通課題（親）」として一元管理し、各プロジェクトでの個別設定（子）と紐付ける。
+* **プロジェクトレベルでの個別Mute実装:** 組織レベルでのMute設定制約があるため、Muteルール自体は各プロジェクト内で個別に作成・管理する。
+* **可監査性の担保:** 「誰が」「なぜ」「いつまで」Muteを承認したのかを管理簿で追跡可能にする。
+
+---
+
+## 2. SCC Findings 管理フロー
+
+検出されたFindingsは、その性質（クラス）に応じて以下のフローで処理する。
+
+1. **Threat（脅威）クラス:**
+* 原則Mute禁止。インシデントとして即時検知・対応フローへ回す。
+
+
+2. **Misconfiguration（設定ミス） / Vulnerability（脆弱性）クラス:**
+* **新規検出:** 共通課題管理簿（親）に該当するカテゴリがあるか確認。
+* **未登録の場合:** セキュリティ統括（承認者）にて「修正対応」か「Mute（リスク受容）」かを判断し、親シートに登録。
+* **Muteと判断された場合:** 各プロジェクトの担当者がプロジェクト個別でMuteルールを設定し、管理簿（子）にステータスを記録。
+
+
+
+---
+
+## 3. 管理簿（スプレッドシート/Excel）設計
+
+管理簿は、ポリシーを決定する「①共通課題マスタ（親）」**と、各プロジェクトの実績を追跡する**「②プロジェクト別発生一覧（子）」の2面で構成する。
+
+### 3.1 【シート①：親】共通課題マスタ
+
+同じカテゴリ、重要度、リソースタイプを1つに集約し、社内ポリシーとしての対応方針を定義する。
+
+| カラム名 | データ型 | 説明 | 設定例 |
+| --- | --- | --- | --- |
+| **共通課題ID** | 文字列 (一意) | `PROB-` から始まる連番 | `PROB-001` |
+| **クラス** | 選択肢 | SCCの検出結果クラス | `Misconfiguration` |
+| **カテゴリ** | 文字列 | SCCのカテゴリAPI識別子 | `PUBLIC_SQL_INSTANCE` |
+| **重要度** | 選択肢 | SCCのSeverity | `HIGH` |
+| **共通の対応方針** | 選択肢 | 組織としてどう扱うか | `リスク受容（Mute）` / `修正` |
+| **Muteの理由分類** | 選択肢 | Muteを許容する理由 | `開発環境のため` / `代替制御あり` |
+| **承認者** | 文字列 | リスクを承認した責任者 | `セキュリティ統括 鈴木` |
+
+### 3.2 【シート②：子】プロジェクト別発生一覧
+
+プロジェクトごとの具体的な発生状況と、個別プロジェクト側でのMute設定状況を追跡する。
+
+| カラム名 | データ型 | 説明 | 設定例 |
+| --- | --- | --- | --- |
+| **プロジェクトID** | 文字列 | 対象のGCPプロジェクトID | `prd-backend-project` |
+| **共通課題ID** | 選択肢 (親紐付) | 親シートのID（VLOOKUPのキー） | `PROB-001` |
+| **リソース名** | 文字列 | 影響を受けているリソース | `//compute.googleapis.com/...` |
+| **実際の対応状況** | 選択肢 | PJ側の作業ステータス | `未着手` / `修正完了` / `Mute設定完了` |
+| **個別Mute設定日** | 日付 | PJでMuteルールを設定した日 | `2026-07-14` |
+| **Mute有効期限** | 日付 | 再レビューを行う日（半年推奨） | `2027-01-14` |
+| **PJ担当者** | 文字列 | 作業を行った担当者 | `開発Aさん` |
+
+---
+
+## 4. Muteルール設計と命名規則
+
+プロジェクト側で作成する個別Muteルールの整合性を保つため、命名規則および設定基準を以下のように定義する。
+
+### 4.1 ミュートルールID命名規則
+
+MuteルールIDは、Google Cloudの命名制約（半角小文字、数字、ハイフンのみ）に準拠し、以下の構文で統一する。
+
+$$\text{[適用範囲]} - \text{[対象サービス]} - \text{[理由/カテゴリ]} - \text{[通番(任意)]}$$
+
+* **適用範囲 (Scope):** `all`（プロジェクト全体）, `dev`（開発環境のみ）, `prd`（本番環境のみ）
+* **対象サービス (Service):** `sql`, `gcs`, `gce`, `iam`, `fw` など
+* **理由/カテゴリ (Reason):** `public`, `openssh`, `falsepositive` (または `fp`), `bizreq` など
+
+#### 命名具体例：
+
+* `all-sql-public-bizreq`：プロジェクト全体のSQLを、ビジネス要件上パブリック公開するためミュート。
+* `dev-gce-openssh-allow`：開発環境（dev）のVMで、一時的な接続検証のためSSH全開放をミュート。
+
+### 4.2 SCCでのフィルタ条件（CEL式）の書き方
+
+Muteルールを作成する際、対象リソースを絞り込むためのCEL（Common Expression Language）式の標準テンプレートを以下に定義する。
+
+* **例1：特定のプロジェクト内で特定のカテゴリをすべてMuteする場合**
+```cel
+category = "PUBLIC_SQL_INSTANCE"
+
+```
+
+
+* **例2：開発用リソース（リソース名に `-dev` が含まれる）の特定カテゴリをMuteする場合**
+```cel
+resource.name.matches(".*-dev.*") AND category = "OPEN_SSH_PORT"
+
+```
+
+
+
+---
+
+## 5. ガバナンス・運用プロセス
+
+組織レベルの制御ができないことによるリスク（Muteのブラックボックス化や設定漏れ）を防ぐため、以下の運用プロセスを策定する。
+
+### 5.1 新規プロジェクト作成時のチェックリスト
+
+新規GCPプロジェクトがプロビジョニングされた際、プロジェクト初期設定のプロセスとして以下を強制する。
+
+1. 管理簿（親シート）を参照し、「共通の対応方針」が `リスク受容（Mute）` となっている課題を抽出する。
+2. 新規プロジェクトのSCCコンソールを開き、抽出した課題に対応する「プロジェクト個別Muteルール」を一括で作成する。
+3. 作成完了後、管理簿（子シート）に新規プロジェクトのレコードを追加し、ステータスを `Mute設定完了` に更新する。
+
+### 5.2 定期棚卸し（レビュー）
+
+* **頻度:** 6ヶ月に1回（半期ごと）
+* **プロセス:**
+1. 管理簿（子シート）の「Mute有効期限」が切れる（または直近の）レコードを抽出する。
+2. セキュリティ統括およびPJ担当者にて、Muteの前提条件（「開発環境のままであるか」「代替制御が有効であるか」など）に変更がないかを再評価する。
+3. 要件が変更されている場合は、Muteルールを削除してリソースの修正（クローズ）を行う。
+
+
+Terraformを用いてSCC（Security Command Center）のミュートルールをコード管理（IaC）されるのですね！非常に堅牢で、運用の自動化を見据えた素晴らしい設計アプローチです。
+
+デフォルトで **「LOWレベル」** および **「コンテナの脆弱性」** を自動ミュートするためのTerraformコード（`.tf`）の設計案と、具体的な記述方法を環境設計書のアドオンとして作成しました。
+
+---
+
+## 6. TerraformによるMuteルールのコード管理（追加設計）
+
+組織レベルでの権限制約があるため、今回はプロジェクトレベル（`google_scc_project_mute_config` リソース）でTerraformコードを定義し、各プロジェクトの管理用リポジトリ（または共通モジュール）に組み込む構成とします。
+
+### 6.1 ディレクトリ構成案（マルチプロジェクト運用）
+
+プロジェクトが増えてもコードを再利用できるよう、Muteルールは **Terraform Module（モジュール）** 化して管理することを強く推奨します。
+
+```text
+├── modules/
+│   └── scc_default_mute/
+│       ├── main.tf          # Muteルールの定義（LOW・コンテナ）
+│       └── variables.tf     # プロジェクトID等の変数定義
+└── environments/
+    ├── prd-project/
+    │   └── main.tf          # モジュール呼び出し（本番）
+    └── dev-project/
+        └── main.tf          # モジュール呼び出し（開発）
+
+```
+
+---
+
+### 6.2 Terraformコードの実装例
+
+#### ① モジュール側：`modules/scc_default_mute/main.tf`
+
+LOWレベルの検出事項と、コンテナの脆弱性（主に `Vulnerability` クラス内のコンテナ関連カテゴリ、または指定の検出元）をミュートする2つのルールを定義します。
+
+```hcl
+# 1. LOWレベルのFindingsを自動ミュートするルール
+resource "google_scc_project_mute_config" "mute_low_severity" {
+  project      = var.project_id
+  mute_config_id = "all-severity-low-default"
+  display_name = "Default Mute Rule for LOW Severity"
+  description  = "セキュリティ基準に基づき、LOWレベルの検出事項をデフォルトで一括ミュートします。"
+
+  # CEL式: 重要度がLOWのものを対象とする
+  filter = "severity = \"LOW\""
+}
+
+# 2. コンテナの脆弱性を自動ミュートするルール
+resource "google_scc_project_mute_config" "mute_container_vulnerabilities" {
+  project      = var.project_id
+  mute_config_id = "all-container-vulnerability-default"
+  display_name = "Default Mute Rule for Container Vulnerabilities"
+  description  = "コンテナイメージに含まれるパッケージ脆弱性等をデフォルトで一括ミュートします。"
+
+  # CEL式: 
+  # クラスがVULNERABILITYであり、かつリソースタイプがContainerRegistry、ArtifactRegistry、またはGKEノード・ポッド関連のものに絞り込む設定例
+  filter = "finding_class = \"VULNERABILITY\" AND (resource.type = \"google.devtools.artifactregistry.Repository\" OR resource.type = \"container.googleapis.com/Cluster\")"
+}
+
+```
+
+#### ② モジュール呼び出し側：`environments/prd-project/main.tf`
+
+各プロジェクトのコードから、上記モジュールを呼び出すだけで一括適用できるようにします。
+
+```hcl
+module "scc_default_mute" {
+  source     = "../../modules/scc_default_mute"
+  project_id = "your-prd-project-id" # 対象のGCPプロジェクトID
+}
+
+```
+
+---
+
+## 7. Terraform運用時の考慮事項（エンジニアからのアドバイス）
+
+1. **GCPプロバイダの権限確認（重要）**
+Terraformを実行するサービスアカウントやユーザーは、対象の各プロジェクトにおいて以下のIAMロール（または権限）を持っている必要があります。
+* **`roles/securitycenter.admin`**（Security Center 管理者）
+* もしカスタムロール等で絞る場合は、`securitycenter.muteconfigs.create` / `delete` / `update` 権限が必要です。
+
+
+2. **コンテナ脆弱性フィルターのチューニング**
+上記のコンテナ脆弱性フィルター（`filter`）は、利用しているコンテナサービス（Artifact Registry等）の実態に合わせて調整してください。例えば、特定の脆弱性スキャナー（例: Container Threat Detection）が検出したものを丸ごとミュートしたい場合は、以下のようなフィルターも効果的です。
+```cel
+# 例: 検出元（Scanner）がコンテナ関連の場合
+finding_class = "VULNERABILITY" AND resource.name.matches(".*/locations/.*/repositories/.*")
+
+```
+
+
+3. **管理簿（子シート）への自動転記プロセス**
+Terraformで設定した `mute_config_id`（例: `all-severity-low-default`）を、前回作成した管理簿（子シート）の「ミュートルールID」列にそのまま記載します。
+IaC（Terraform）でコード管理された構成と、スプレッドシートの管理簿が完全に1対1で一致するため、監査やシステム引き継ぎの際にも「このコードは管理簿のこの行のポリシーに基づいて設定されたものだ」という追跡が容易になります。

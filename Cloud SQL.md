@@ -1,3 +1,246 @@
+`gcloud` コマンドの `--format` と `--filter` オプションを使いこなすための実践的なチートシートです。
+
+---
+
+## 1. `--format` （出力形式の指定）
+
+出力フォーマットの切り替えや、特定フィールドの抽出・整形を行います。
+
+### よく使うフォーマット形式
+
+| フォーマット | 説明 | コマンド例 |
+| --- | --- | --- |
+| **table** | 表形式（デフォルト） | `--format="table(name, zone, status)"` |
+| **json** | JSON形式（プログラミング・スクリプト用） | `--format="json"` |
+| **yaml** | YAML形式 | `--format="yaml"` |
+| **csv** | CSV形式（ヘッダー付き） | `--format="csv(name, networkInterfaces[0].networkIP)"` |
+| **value** | 特定フィールドの値のみ抽出（シェルスクリプト用） | `--format="value(name)"` |
+| **text** | キー: 値のリスト形式 | `--format="text"` |
+
+### `--format` のよく使う構文パターン
+
+* **特定の属性だけを表にする（列名のカスタマイズ）**
+```bash
+gcloud compute instances list \
+  --format="table(name:label=NAME, status:label=STATUS, zone.basename():label=ZONE)"
+
+```
+
+
+* **配列データの先頭要素を取得する**
+```bash
+gcloud compute instances list \
+  --format="value(networkInterfaces[0].networkIP)"
+
+```
+
+
+* **ネストしたJSONフィールドを展開して取得**
+```bash
+gcloud container clusters list \
+  --format="table(name, currentNodeCount, nodeConfig.machineType)"
+
+```
+
+
+* **スライス機能（末尾の文字列だけ抽出）**
+```bash
+# URLパスの最後の要素（ゾーン名など）だけを取得する
+gcloud compute instances list \
+  --format="value(zone.basename())"
+
+```
+
+
+
+---
+
+## 2. `--filter` （データの絞り込み）
+
+クライアント側ではなく、**Google Cloudのサーバー側で検索・フィルタリング**を行って結果を絞り込みます。
+
+### 演算子一覧
+
+| 種類 | 演算子 | 意味 | 例 |
+| --- | --- | --- | --- |
+| **一致 / 不一致** | `=`, `!=` | 完全一致 / 不一致 | `status=RUNNING` |
+| **部分一致** | `:` | 〜を含む（前方/部分一致） | `name:web` |
+| **正規表現** | `~` | 正規表現にマッチ | `name~'^prod-.*'` |
+| **正規表現不一致** | `!~` | 正規表現にマッチしない | `name!~'test'` |
+| **比較** | `<`, `>`, `<=`, `>=` | 数値・日付の比較 | `creationTimestamp < 2026-01-01` |
+| **否定** | `NOT` / `-` | 条件の反転 | `NOT status=TERMINATED` |
+
+### `--filter` の実践例
+
+* **単一の条件で絞り込む**
+```bash
+# 稼働中のVMインスタンスのみ取得
+gcloud compute instances list --filter="status=RUNNING"
+
+```
+
+
+* **複数条件（AND / OR）**
+```bash
+# asia-northeast1 ゾーンで、かつ RUNNING 状態のインスタンス
+gcloud compute instances list \
+  --filter="zone:asia-northeast1 AND status=RUNNING"
+
+# 名前に 'web' または 'app' を含むインスタンス
+gcloud compute instances list \
+  --filter="name:web OR name:app"
+
+```
+
+
+* **否定（NOT）**
+```bash
+# 停止中（TERMINATED）以外のインスタンス
+gcloud compute instances list --filter="NOT status=TERMINATED"
+
+```
+
+
+* **キー・バリュー（ラベル）での絞り込み**
+```bash
+# env=production ラベルが付与されているリソース
+gcloud compute instances list --filter="labels.env=production"
+
+```
+
+
+* **日付での絞り込み**
+```bash
+# 2026年1月1日以降に作成されたリソース
+gcloud compute instances list --filter="creationTimestamp >= 2026-01-01"
+
+```
+
+
+
+---
+
+## 3. `--filter` と `--format` の組み合わせ例
+
+実際の運用やスクリプト作成でよく使われる組み合わせ例です。
+
+### 停止中のVMインスタンスの「名前」一覧を取得する（シェルスクリプト用）
+
+```bash
+gcloud compute instances list \
+  --filter="status=TERMINATED" \
+  --format="value(name)"
+
+```
+
+### 外部IPアドレスを持っているVMインスタンスだけを抽出して表形式で出力する
+
+```bash
+gcloud compute instances list \
+  --filter="networkInterfaces[].accessConfigs[].natIP:*" \
+  --format="table(name, zone.basename(), networkInterfaces[0].accessConfigs[0].natIP:label=EXTERNAL_IP)"
+
+```
+シェルスクリプトや運用自動化でそのまま使える、`gcloud` の `--filter` / `--format` を活用した実用ワンライナー集です。
+
+---
+
+## 1. 資源の特定と一括操作（ループ・削除）
+
+### 停止中の Compute Engine (VM) の名前一覧を取得して一括削除する
+
+```bash
+gcloud compute instances list \
+  --filter="status=TERMINATED" \
+  --format="value(name)" \
+  | xargs -r gcloud compute instances delete --quiet --zone=asia-northeast1-a
+
+```
+
+### 特定ラベルが付いたリソース（例: env=test）をまとめて停止する
+
+```bash
+gcloud compute instances list \
+  --filter="labels.env=test AND status=RUNNING" \
+  --format="value(name, zone.basename())" \
+  | while read -r name zone; do
+      gcloud compute instances stop "$name" --zone="$zone" --quiet
+    done
+
+```
+
+---
+
+## 2. ネットワーク・IPアドレスの抽出
+
+### 外部IPアドレスを持つ全VMの「名前 / 内部IP / 外部IP」をCSV出力する
+
+```bash
+gcloud compute instances list \
+  --filter="networkInterfaces[].accessConfigs[].natIP:*" \
+  --format="csv[no-heading](name, networkInterfaces[0].networkIP, networkInterfaces[0].accessConfigs[0].natIP)"
+
+```
+
+### 未使用（Unattached）の静的外部IPアドレス一覧を取得する
+
+```bash
+gcloud compute addresses list \
+  --filter="status=RESERVED AND NOT users:*" \
+  --format="value(name, address, region.basename())"
+
+```
+
+---
+
+## 3. セキュリティ・IAM・権限の監査
+
+### 指定した権限（例: storage.admin）を持つユーザー/サービスアカウントを抽出する
+
+```bash
+gcloud projects get-iam-policy $(gcloud config get-value project) \
+  --flatten="bindings[].members" \
+  --filter="bindings.role:roles/storage.admin" \
+  --format="value(bindings.members)"
+
+```
+
+### 有効化されているサービスアカウントのキー（鍵）一覧と作成日を取得する
+
+```bash
+gcloud iam service-accounts keys list \
+  --iam-account="MY_SA@$(gcloud config get-value project).iam.gserviceaccount.com" \
+  --filter="keyType=USER_MANAGED" \
+  --format="table(name.basename():label=KEY_ID, validAfterTime:label=CREATED_AT)"
+
+```
+
+---
+
+## 4. コスト削減・不要リソースの監査
+
+### どのVMにもアタッチされていない「孤立したPersistent Disk」を探す
+
+```bash
+gcloud compute disks list \
+  --filter="NOT users:*" \
+  --format="table(name, sizeGb, zone.basename(), creationTimestamp)"
+
+```
+
+### 30日以上前に作成された古くなったバックアップ（スナップショット）を取得する
+
+```bash
+gcloud compute snapshots list \
+  --filter="creationTimestamp < 2026-09-21" \
+  --format="value(name)"
+
+```
+
+---
+
+
+
 # gcloud config configurations チートシート
 
 Google Cloud CLI（`gcloud`）の「構成（Configuration）」は、アカウント、プロジェクト、デフォルトのリージョンやゾーンなどの設定一式に名前を付けて管理する仕組みです。本チートシートでは、環境切り替え（本番/検証/開発）や複数アカウント運用に必須となるコマンドと活用Tipsを整理しています。
